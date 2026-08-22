@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Env and secrets — never commit real credentials
+.env
+.env.local
+*.pem
+*.key
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Data (keep samples only)
+data/raw/
+data/uci/
+*.xlsx
+!data/samples/**
+
+# Docker / Terraform leftovers
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Streamlit
+.streamlit/secrets.toml

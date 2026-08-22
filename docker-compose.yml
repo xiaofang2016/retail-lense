@@ -1,0 +1,59 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      BACKEND_PORT: "8000"
+      DDB_ENDPOINT: http://dynamodb:8000
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - dynamodb
+
+  worker:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    command: python -m workers.clustering
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+    env_file:
+      - .env
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-8501}:8501"
+    volumes:
+      - ./frontend:/app
+    depends_on:
+      - backend
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  dynamodb:
+    image: amazon/dynamodb-local:2.6.1
+    user: root
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /data"
+    ports:
+      - "8001:8000"
+    volumes:
+      - dynamodb-data:/data
+
+volumes:
+  dynamodb-data:

@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Retail Lense — EC2 + ALB + S3 + DynamoDB + IAM + SNS + Secrets + CloudWatch.
+  No Lambda. No SSM. No RDS.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+
+Resources:
+  # TODO: VPC, public subnets, ALB, target group, HTTPS listener
+  # TODO: EC2 Auto Scaling group (Streamlit + FastAPI + workers), instance profile
+  # TODO: S3 bucket with prefixes public/ uploads/ results/; block public access except intended public objects
+  # TODO: DynamoDB tables Users (GSI email/username), LoginHistory (GSI ip+created_at), PasswordReset (TTL), Otps (TTL), Analyses
+  # TODO: SQS analysis queue (optional), SNS OTP + complete topics
+  # TODO: Secrets Manager JWT + OpenAI (empty placeholders; values set out of band)
+  # TODO: CloudWatch log groups, dashboards, billing alarm
+  # Do not add AWS::Lambda::* or AWS::SSM::*
+
+  PlaceholderBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "retaillen-${EnvironmentName}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  BucketName:
+    Value: !Ref PlaceholderBucket
