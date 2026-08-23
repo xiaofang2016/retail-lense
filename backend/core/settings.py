@@ -51,6 +51,7 @@ class Settings:
     security_max_failed_per_ip: int
     security_ip_window_minutes: int
     aws_region: str
+    aws_profile: str
     ddb_endpoint: str
     ddb_users_table: str
     ddb_login_history_table: str
@@ -101,6 +102,7 @@ def get_settings() -> Settings:
     settings.security_max_failed_per_ip = _int("SECURITY_MAX_FAILED_PER_IP", 20)
     settings.security_ip_window_minutes = _int("SECURITY_IP_WINDOW_MINUTES", 15)
     settings.aws_region = os.getenv("AWS_REGION", "us-east-1")
+    settings.aws_profile = os.getenv("AWS_PROFILE", "").strip()
     settings.ddb_endpoint = os.getenv("DDB_ENDPOINT", "").rstrip("/")
     settings.ddb_users_table = os.getenv("DDB_USERS_TABLE", "retaillen-users")
     settings.ddb_login_history_table = os.getenv("DDB_LOGIN_HISTORY_TABLE", "retaillen-login-history")

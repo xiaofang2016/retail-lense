@@ -24,6 +24,12 @@ def dynamodb_resource():
         kwargs["endpoint_url"] = settings.ddb_endpoint
         kwargs["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY_ID") or "local"
         kwargs["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY") or "local"
+        return boto3.resource("dynamodb", **kwargs)
+    if settings.aws_profile:
+        return boto3.Session(
+            profile_name=settings.aws_profile,
+            region_name=settings.aws_region,
+        ).resource("dynamodb")
     return boto3.resource("dynamodb", **kwargs)
 
 
