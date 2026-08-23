@@ -12,7 +12,25 @@ data/samples/ Tiny schema samples (not the full UCI dataset)
 docs/         Architecture notes
 ```
 
-Compute runs on **EC2 only** (no Lambda, no SSM). Persistence is **DynamoDB + S3** (no RDS / SQL).
+Compute runs on **EC2 only** (no Lambda). Persistence is **DynamoDB + S3** (no RDS / SQL).
+
+## Python
+
+Use **Python 3.12** (CI and Docker). `datetime.UTC` needs 3.11+. macOS Command Line Tools `python3` is often 3.9 and will fail.
+
+```bash
+python3.12 --version
+# macOS if missing: brew install python@3.12
+```
+
+Create both venvs with that interpreter, not `/usr/bin/python3`:
+
+```bash
+cd backend && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cd frontend && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+```
+
+Do not run the API with `frontend/.venv` (Streamlit ships uvicorn, but the `api` package lives under `backend/`).
 
 ## Local run
 
@@ -22,19 +40,17 @@ Copy env once:
 cp .env.example .env
 ```
 
-`APP_ENV=local` with an empty `DDB_ENDPOINT` keeps users in process memory (lost on restart). Set `DDB_ENDPOINT` to use DynamoDB Local. `APP_ENV=aws` (and no endpoint) uses real DynamoDB in `AWS_REGION`.
+| `.env` | User store |
+| --- | --- |
+| `APP_ENV=local` and empty `DDB_ENDPOINT` | In-memory (lost on API restart) |
+| `DDB_ENDPOINT=http://127.0.0.1:8001` | DynamoDB Local |
+| `APP_ENV=aws` and empty `DDB_ENDPOINT` | Real DynamoDB in `AWS_REGION` |
+
+Restart the API after any `.env` change (`get_settings` is cached).
 
 ### Option A — two terminals (Python)
 
-Backend venv (once):
-
-```bash
-cd backend
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
-
-Terminal 1 — API (from the repo root; do not use `frontend/.venv`):
+Terminal 1 — API (from the repo root):
 
 ```bash
 ./infra/scripts/run_api.sh
@@ -51,8 +67,6 @@ Terminal 2 — Streamlit UI:
 
 ```bash
 cd frontend
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
 export BACKEND_URL=http://localhost:8000
 .venv/bin/streamlit run app.py
 ```
@@ -195,9 +209,13 @@ Stop later with `docker compose stop dynamodb`. Data lives in the `dynamodb-data
 
 ### AWS account — real tables
 
-Uses the current AWS credentials and region (`AWS_PROFILE` / `AWS_REGION`). Does not call STS. On-demand billing. Re-run is a no-op for tables that already exist.
+Clear `DDB_ENDPOINT` and set `APP_ENV=aws`. Does not call STS. On-demand billing. Re-run is a no-op for tables that already exist.
 
-Clear `DDB_ENDPOINT` and set `APP_ENV=aws` so the API talks to AWS, not DynamoDB Local.
+```
+APP_ENV=aws
+AWS_REGION=us-east-1
+DDB_ENDPOINT=
+```
 
 ```bash
 # preview
@@ -206,11 +224,55 @@ Clear `DDB_ENDPOINT` and set `APP_ENV=aws` so the API talks to AWS, not DynamoDB
 # create missing tables (prompts for confirm)
 ./infra/scripts/create_dynamodb_tables.sh
 
-# non-interactive (CI / already confirmed)
+# non-interactive
 ./infra/scripts/create_dynamodb_tables.sh --yes
 ```
 
-Optional: `AWS_PROFILE=your-profile AWS_REGION=us-east-1 ./infra/scripts/create_dynamodb_tables.sh --yes`
+Then restart the API and check:
+
+```bash
+curl -s http://localhost:8000/health
+# expect: {"status":"ok","store":"dynamodb"}  — no ddb_endpoint
+```
+
+#### AWS credentials and `AWS_PROFILE`
+
+Boto3 uses the default chain: env keys → `~/.aws/credentials` **`[default]`** → EC2 instance role.
+
+If the machine has **several profiles** and `[default]` is the wrong IAM user, set the course profile in `.env`:
+
+```
+AWS_PROFILE=your-profile-name
+```
+
+List names with `aws configure list-profiles`. Leave `AWS_PROFILE` empty when `[default]` is already correct, or on EC2 when you use an instance role.
+
+Do not put access keys in `.env`. A process-level `AWS_PROFILE=...` overrides `.env` (`setdefault`). Restart the API after changing it.
+
+One-off for the table script: `AWS_PROFILE=your-profile AWS_REGION=us-east-1 ./infra/scripts/create_dynamodb_tables.sh --yes`
+
+## Production (EC2)
+
+`infra/scripts/deploy.sh` and CloudFormation are still stubs. Manual start on the box:
+
+- Python 3.12, `APP_ENV=aws`, empty `DDB_ENDPOINT`, real SMTP (not Mailpit).
+- No `--reload`. Bind `0.0.0.0`. Prefer an instance IAM role; otherwise `AWS_PROFILE` as above.
+- `BASE_URL` = public Streamlit URL (password-reset email). `BACKEND_URL=http://127.0.0.1:8000` when UI and API share the host.
+
+```bash
+# API
+cd backend
+PYTHONPATH=. .venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+
+# UI (same host)
+cd frontend
+BACKEND_URL=http://127.0.0.1:8000 \
+  .venv/bin/streamlit run app.py --server.address=0.0.0.0 --server.port=8501
+```
+
+Port **80** needs root (or `setcap`) on Linux. Better: keep Streamlit on 8501 and put ALB/nginx on 80 in front.
+
+Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DDB_ENDPOINT=http://dynamodb:8000`.
 
 
 ## AWS services in scope
@@ -228,7 +290,9 @@ Optional: `AWS_PROFILE=your-profile AWS_REGION=us-east-1 ./infra/scripts/create_
 | SQS (optional) | Decouple upload from clustering on EC2 |
 | CloudFront (optional) | CDN in front of the ALB |
 
-**Not used:** Lambda, SSM, RDS, SageMaker, Bedrock, WAF, ACM.
+**Assignment forbids:** RDBMS, SageMaker, Bedrock, WAF, ACM, Device Farm, Redshift, QuickSight, Shield, Inspector.
+
+**This repo does not use:** Lambda, SSM. Secrets live in Secrets Manager (or `JWT_SECRET` on a laptop).
 
 ## Analysis flow
 
