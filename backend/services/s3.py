@@ -8,7 +8,10 @@ from core.settings import get_settings
 
 logger = logging.getLogger("s3")
 
-_LOCAL_SAMPLE = Path(__file__).resolve().parents[2] / "data" / "samples" / "transactions_sample.csv"
+_LOCAL_SAMPLE_CANDIDATES = (
+    Path(__file__).resolve().parents[1] / "data" / "samples" / "transactions_sample.csv",
+    Path(__file__).resolve().parents[2] / "data" / "samples" / "transactions_sample.csv",
+)
 
 
 def s3_client():
@@ -43,8 +46,9 @@ def get_transactions_sample() -> tuple[bytes, str]:
                 settings.s3_transactions_sample_key,
                 exc,
             )
-    if _LOCAL_SAMPLE.is_file():
-        return _LOCAL_SAMPLE.read_bytes(), "local"
+    for sample_path in _LOCAL_SAMPLE_CANDIDATES:
+        if sample_path.is_file():
+            return sample_path.read_bytes(), "local"
     raise FileNotFoundError("transactions_sample.csv is not in S3 and no local copy exists")
 
 
