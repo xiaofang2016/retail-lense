@@ -40,7 +40,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
-          script_stop: true
+          script_stop: false
           envs: DEPLOY_BRANCH
           command_timeout: 20m
           script: |
