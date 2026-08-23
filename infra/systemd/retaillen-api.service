@@ -1,0 +1,17 @@
+[Unit]
+Description=Retail Lense FastAPI
+After=network.target
+
+[Service]
+Type=simple
+User=mike
+Group=mike
+WorkingDirectory=/home/mike/retail-lense/backend
+EnvironmentFile=-/home/mike/retail-lense/.env
+Environment=PYTHONPATH=.
+ExecStart=/home/mike/retail-lense/backend/.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

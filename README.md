@@ -251,26 +251,59 @@ Do not put access keys in `.env`. A process-level `AWS_PROFILE=...` overrides `.
 
 One-off for the table script: `AWS_PROFILE=your-profile AWS_REGION=us-east-1 ./infra/scripts/create_dynamodb_tables.sh --yes`
 
-## Production (EC2)
+## Production (EC2, Amazon Linux)
 
-`infra/scripts/deploy.sh` and CloudFormation are still stubs. Manual start on the box:
+CloudFormation (`infra/scripts/deploy.sh`) is still a stub. The SSH pipeline below is the **test environment**: a merge (push) to **`dev`** deploys immediately. No SSM.
 
-- Python 3.12, `APP_ENV=aws`, empty `DDB_ENDPOINT`, real SMTP (not Mailpit).
-- No `--reload`. Bind `0.0.0.0`. Prefer an instance IAM role; otherwise `AWS_PROFILE` as above.
-- `BASE_URL` = public Streamlit URL (password-reset email). `BACKEND_URL=http://127.0.0.1:8000` when UI and API share the host.
+### One-time on the instance
+
+Amazon Linux as user `mike`. App dir: `/home/mike/retail-lense`.
 
 ```bash
-# API
-cd backend
-PYTHONPATH=. .venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+sudo dnf install -y git python3.12 python3.12-pip
 
-# UI (same host)
-cd frontend
-BACKEND_URL=http://127.0.0.1:8000 \
-  .venv/bin/streamlit run app.py --server.address=0.0.0.0 --server.port=8501
+# Deploy key: GitHub repo → Settings → Deploy keys (read-only)
+mkdir -p ~/.ssh
+# put the private key in ~/.ssh/id_ed25519 (chmod 600)
+ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+cd /home/mike/retail-lense
+git checkout dev
+
+python3.12 -m venv backend/.venv
+backend/.venv/bin/pip install -r backend/requirements.txt
+python3.12 -m venv frontend/.venv
+frontend/.venv/bin/pip install -r frontend/requirements.txt
+
+# Repo-root .env stays on the box only (APP_ENV=aws, empty DDB_ENDPOINT, AWS_PROFILE if needed)
+# edit .env: BASE_URL, SMTP, AWS_PROFILE, JWT_SECRET, ...
+
+sudo cp infra/systemd/retaillen-api.service infra/systemd/retaillen-ui.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now retaillen-api retaillen-ui
+curl -s http://127.0.0.1:8000/health
 ```
 
-Port **80** needs root (or `setcap`) on Linux. Better: keep Streamlit on 8501 and put ALB/nginx on 80 in front.
+Give `mike` passwordless restart (once):
+
+```bash
+echo 'mike ALL=(root) NOPASSWD: /bin/systemctl restart retaillen-api, /bin/systemctl restart retaillen-ui, /bin/systemctl is-active retaillen-api, /bin/systemctl is-active retaillen-ui, /bin/systemctl status retaillen-api' | sudo tee /etc/sudoers.d/retaillen
+sudo chmod 440 /etc/sudoers.d/retaillen
+```
+
+Allow GitHub Actions to SSH in: security group port 22 from GitHub-hosted runner IPs (or a fixed jump host). Put the matching public key in `/home/mike/.ssh/authorized_keys`.
+
+### GitHub Actions secrets
+
+| Secret | Example |
+| --- | --- |
+| `DEPLOY_HOST` | EC2 public DNS or EIP |
+| `DEPLOY_USER` | `mike` |
+| `DEPLOY_SSH_KEY` | private key that logs in as `mike` |
+
+A merge into **`dev`** (or a direct push to `dev`) runs tests, then SSH-runs `infra/scripts/deploy_ec2.sh` (`git reset --hard origin/dev`, pip install, restart API/UI, `GET /health`). Manual: Actions → CI/CD → Run workflow (still deploys `dev` to the test box). Production/`master` is not wired yet.
+
+Port **80** needs root (or `setcap`). Better: Streamlit on 8501, ALB/nginx on 80.
 
 Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DDB_ENDPOINT=http://dynamodb:8000`.
 

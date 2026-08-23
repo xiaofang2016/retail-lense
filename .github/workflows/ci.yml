@@ -1,22 +1,55 @@
-name: ci
+name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
+  workflow_dispatch:
 
 jobs:
-  lint:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Syntax check
         run: python -m compileall frontend backend
+
       - name: Auth tests
         working-directory: backend
         run: |
           pip install -r requirements.txt
           PYTHONPATH=. pytest tests/
+
+  deploy-test:
+    name: Deploy test (dev)
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_BRANCH: dev
+    steps:
+      - name: Deploy test env on Amazon Linux over SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script_stop: true
+          envs: DEPLOY_BRANCH
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            APP_DIR=/home/mike/retail-lense
+            BRANCH=dev
+            cd "${APP_DIR}"
+            git fetch origin
+            git reset --hard "origin/${BRANCH}"
+            export APP_DIR
+            export DEPLOY_BRANCH="${BRANCH}"
+            bash "${APP_DIR}/infra/scripts/deploy_ec2.sh"
