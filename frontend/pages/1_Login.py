@@ -37,6 +37,6 @@ with st.expander("Forgot password"):
     if st.button("Send reset link"):
         try:
             api_client.forgot_password(email.strip())
-            st.success("If that email is registered, a reset link was sent.")
+            st.success("A  reset link was sent.")
         except ApiError as exc:
             st.error(exc.detail)
