@@ -55,6 +55,14 @@ def health() -> dict[str, Any]:
     return _request("GET", "/health")
 
 
+def transactions_sample() -> bytes:
+    with _client() as client:
+        response = client.get("/uploads/transactions-sample")
+        if response.is_error:
+            raise ApiError(response.status_code, _detail(response))
+        return response.content
+
+
 def register(email: str, username: str, full_name: str, password: str, password_confirm: str) -> dict[str, Any]:
     return _request(
         "POST",

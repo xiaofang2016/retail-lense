@@ -52,6 +52,9 @@ class Settings:
     security_ip_window_minutes: int
     aws_region: str
     aws_profile: str
+    s3_bucket: str
+    s3_prefix_public: str
+    s3_transactions_sample_key: str
     ddb_endpoint: str
     ddb_users_table: str
     ddb_login_history_table: str
@@ -103,6 +106,15 @@ def get_settings() -> Settings:
     settings.security_ip_window_minutes = _int("SECURITY_IP_WINDOW_MINUTES", 15)
     settings.aws_region = os.getenv("AWS_REGION", "us-east-1")
     settings.aws_profile = os.getenv("AWS_PROFILE", "").strip()
+    settings.s3_bucket = os.getenv("S3_BUCKET", "retaillen-dev").strip()
+    prefix = os.getenv("S3_PREFIX_PUBLIC", "public/").strip() or "public/"
+    if not prefix.endswith("/"):
+        prefix = f"{prefix}/"
+    settings.s3_prefix_public = prefix
+    settings.s3_transactions_sample_key = (
+        os.getenv("S3_TRANSACTIONS_SAMPLE_KEY", "").strip()
+        or f"{prefix}transactions_sample.csv"
+    )
     settings.ddb_endpoint = os.getenv("DDB_ENDPOINT", "").rstrip("/")
     settings.ddb_users_table = os.getenv("DDB_USERS_TABLE", "retaillen-users")
     settings.ddb_login_history_table = os.getenv("DDB_LOGIN_HISTORY_TABLE", "retaillen-login-history")
