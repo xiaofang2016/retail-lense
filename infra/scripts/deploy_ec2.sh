@@ -18,8 +18,25 @@ git fetch origin
 echo "[2/5] Resetting to origin/${BRANCH}..."
 git reset --hard "origin/${BRANCH}"
 
+
 echo "[3/5] Building and restarting backend + frontend..."
-docker compose up -d --build backend frontend
+# optimize rebuilds by checking if requirements.txt changed
+# becareful, everytime you change requirements.txt, it will rebuild the docker.and it cost 17minutes
+# as we want to control the cost of the EC2, no plan to upgrade the vm.
+
+if git diff --name-only "$OLD_COMMIT" "$NEW_COMMIT" | grep -qE '^(backend)/requirements\.txt$'; then
+    docker compose up -d --build backend
+else
+    docker compose restart backend
+fi
+
+#same as above,
+if git diff --name-only "$OLD_COMMIT" "$NEW_COMMIT" | grep -qE '^(frontend)/requirements\.txt$'; then
+    docker compose up -d --build frontend
+else
+    docker compose restart frontend
+fi
+
 
 echo "[4/5] Checking container status..."
 docker compose ps backend frontend
