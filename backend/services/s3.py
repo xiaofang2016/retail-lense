@@ -35,21 +35,26 @@ def get_object_bytes(key: str) -> bytes:
 def get_transactions_sample() -> tuple[bytes, str]:
     """Return (csv_bytes, source). source is 's3' or 'local'."""
     settings = get_settings()
+    s3_error: str | None = None
     if settings.app_env != "test":
         try:
             body = get_object_bytes(settings.s3_transactions_sample_key)
             return body, "s3"
         except Exception as exc:
-            logger.warning(
-                "s3 sample %s/%s failed: %s",
-                settings.s3_bucket,
-                settings.s3_transactions_sample_key,
-                exc,
+            s3_error = (
+                f"s3://{settings.s3_bucket}/{settings.s3_transactions_sample_key} "
+                f"(APP_ENV={settings.app_env}, profile={settings.aws_profile or 'default/instance-role'}): {exc}"
             )
+            logger.warning("s3 sample failed: %s", s3_error)
     for sample_path in _LOCAL_SAMPLE_CANDIDATES:
         if sample_path.is_file():
             return sample_path.read_bytes(), "local"
-    raise FileNotFoundError("transactions_sample.csv is not in S3 and no local copy exists")
+    if s3_error:
+        raise FileNotFoundError(f"{s3_error}. No local copy exists")
+    raise FileNotFoundError(
+        "transactions_sample.csv was not read from S3 "
+        f"(APP_ENV={settings.app_env}) and no local copy exists"
+    )
 
 
 def put_upload(user_id: str, key: str, body: bytes, content_type: str) -> str:
