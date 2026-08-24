@@ -1,64 +1,63 @@
 #!/usr/bin/env bash
-# Pull the test branch (dev) on the EC2 box and restart API + UI. Amazon Linux. No SSM.
+# Deploy backend + frontend with Docker Compose on EC2.
 set -euo pipefail
 
 ROOT="${APP_DIR:-/home/mike/retail-lense}"
 BRANCH="${DEPLOY_BRANCH:-dev}"
-API_UNIT="${API_UNIT:-retaillen-api}"
-UI_UNIT="${UI_UNIT:-retaillen-ui}"
 
 cd "${ROOT}"
 
-echo "Fetching ${BRANCH}..."
+echo "========================================"
+echo "Deploying branch: ${BRANCH}"
+echo "Project: ${ROOT}"
+echo "========================================"
+
+echo "[1/5] Fetching latest code..."
 git fetch origin
+
+echo "[2/5] Resetting to origin/${BRANCH}..."
 git reset --hard "origin/${BRANCH}"
-git submodule update --init --recursive 2>/dev/null || true
 
-if [[ ! -x "${ROOT}/backend/.venv/bin/python" ]]; then
-  echo "backend/.venv is missing. Create it once with python3.12 -m venv backend/.venv" >&2
-  exit 1
-fi
-if [[ ! -x "${ROOT}/frontend/.venv/bin/python" ]]; then
-  echo "frontend/.venv is missing. Create it once with python3.12 -m venv frontend/.venv" >&2
-  exit 1
-fi
+echo "[3/5] Building and restarting backend + frontend..."
+docker compose up -d --build backend frontend
 
-echo "Installing backend deps..."
-"${ROOT}/backend/.venv/bin/pip" install -q -r "${ROOT}/backend/requirements.txt"
+echo "[4/5] Checking container status..."
+docker compose ps backend frontend
 
-echo "Installing frontend deps..."
-"${ROOT}/frontend/.venv/bin/pip" install -q -r "${ROOT}/frontend/requirements.txt"
+echo "[5/5] Health check..."
 
-echo "Restarting API..."
-if systemctl list-unit-files --type=service 2>/dev/null | grep -q "^${API_UNIT}.service"; then
-  sudo systemctl restart "${API_UNIT}"
-  sudo systemctl is-active --quiet "${API_UNIT}"
-else
-  pkill -f "${ROOT}/backend/.venv/bin/uvicorn api.main:app" || true
-  sleep 1
-  cd "${ROOT}/backend"
-  PYTHONPATH=. nohup .venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 \
-    >> "${ROOT}/backend/uvicorn.log" 2>&1 &
-  cd "${ROOT}"
-fi
-
-if systemctl list-unit-files --type=service 2>/dev/null | grep -q "^${UI_UNIT}.service"; then
-  echo "Restarting UI..."
-  sudo systemctl restart "${UI_UNIT}"
-  sudo systemctl is-active --quiet "${UI_UNIT}"
-fi
-
-echo "Health check..."
 for _ in 1 2 3 4 5 6; do
-  if curl -fsS http://127.0.0.1:8000/health | grep -q '"status":"ok"'; then
-    curl -sS http://127.0.0.1:8000/health
-    echo
-    echo "Deploy ok: $(git rev-parse --short HEAD)"
-    exit 0
-  fi
-  sleep 2
+    if curl -fsS http://127.0.0.1:8000/health | grep -q '"status":"ok"'; then
+        echo
+        curl -sS http://127.0.0.1:8000/health
+        echo
+        echo
+        echo "========================================"
+        echo "Deploy successful!"
+        echo "Commit: $(git rev-parse --short HEAD)"
+        echo "========================================"
+        exit 0
+    fi
+
+    echo "Waiting for backend..."
+    sleep 5
 done
 
-echo "API health check failed" >&2
-systemctl status "${API_UNIT}" --no-pager 2>/dev/null || tail -n 40 "${ROOT}/backend/uvicorn.log" || true
+echo
+echo "========================================"
+echo "ERROR: API health check failed"
+echo "========================================"
+
+echo
+echo "Container status:"
+docker compose ps backend frontend
+
+echo
+echo "Backend logs:"
+docker compose logs --tail=50 backend || true
+
+echo
+echo "Frontend logs:"
+docker compose logs --tail=50 frontend || true
+
 exit 1
