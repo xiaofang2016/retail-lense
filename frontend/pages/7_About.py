@@ -6,4 +6,6 @@ from components.style import setup
 
 setup("About")
 
-st.title("About usdf3432423")
+st.title("About Us")
+
+st.write("Working on it.")
