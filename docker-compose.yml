@@ -6,7 +6,9 @@ services:
       - .env
     environment:
       BACKEND_PORT: "8000"
-      DDB_ENDPOINT: http://dynamodb:8000
+      #DDB_ENDPOINT: http://dynamodb:8000 #leave it blank to use AWS DynamoDB service instead of local DynamoDB
+      AWS_PROFILE: mike
+      AWS_DEFAULT_REGION: us-east-1    
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
