@@ -13,8 +13,6 @@ services:
     volumes:
       - ./backend:/app
       - ~/.aws:/root/.aws:ro
-    depends_on:
-      - dynamodb
 
   worker:
     build:
