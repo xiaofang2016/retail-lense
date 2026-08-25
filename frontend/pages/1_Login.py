@@ -11,7 +11,7 @@ setup("Sign in")
 st.title("Sign in")
 
 if session.signed_in():
-    st.write("You are already signed in.")
+    st.write("You are already signed in to the application.")
     st.stop()
 
 with st.form("signin"):

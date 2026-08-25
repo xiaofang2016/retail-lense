@@ -8,4 +8,4 @@ setup("About")
 
 st.title("About Us")
 
-st.write("Working on it,please be patient.")
+st.write("Working on it,please be patient.Edit..by eithae")
