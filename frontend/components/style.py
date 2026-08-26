@@ -1,4 +1,5 @@
 """Shared Streamlit chrome: narrow layout, muted type."""
+from pathlib import Path
 
 import streamlit as st
 
@@ -40,6 +41,12 @@ _CSS = """
 def setup(title: str) -> None:
     st.set_page_config(page_title=f"{title} · Retail Lense", layout="wide")
     st.markdown(_CSS, unsafe_allow_html=True)
+    
+    # Add logo to sidebar 
+    logo_path = Path(__file__).parent.parent / "assets" / "RT_logo.png"
+    if logo_path.exists():
+        st.logo(str(logo_path))
+    
     user = session.current_user()
     if user:
         st.sidebar.caption(user.get("email") or user.get("username") or "")
