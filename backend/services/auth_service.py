@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from core.exceptions import IpBlockedForUser, IpRestricted, UserLockedOut
 from core.security.hasher import FAKE_PASSWORD_HASH, get_hasher
-from core.security.request_ip import normalize_ip
+from core.security.ip import normalize_ip
 from core.security.tokens import create_access_token
 from core.settings import get_settings
 from schema.user import LoginEvent, UserOut, UserRecord

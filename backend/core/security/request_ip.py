@@ -1,6 +1,8 @@
-import ipaddress
-
 from fastapi import Request
+
+from core.security.ip import normalize_ip
+
+__all__ = ["client_ip", "normalize_ip"]
 
 
 def client_ip(request: Request) -> str:
@@ -10,11 +12,3 @@ def client_ip(request: Request) -> str:
         ip = forwarded.split(",")[0].strip()
         return ip or "unknown"
     return request.client.host if request.client else "unknown"
-
-
-def normalize_ip(raw: str) -> str:
-    """Canonical IPv4/IPv6 string. Raises ValueError if not an address."""
-    text = (raw or "").strip()
-    if not text or text.lower() == "unknown":
-        raise ValueError("invalid IP")
-    return str(ipaddress.ip_address(text.split("%")[0]))
