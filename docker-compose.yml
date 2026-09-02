@@ -13,10 +13,8 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-    #uncomment the following lines to mount local directories for development purposes
-    #volumes: 
-     # - ./backend:/app
-     # - ~/.aws:/root/.aws:ro
+    volumes:
+      - ./backend:/app
 
   worker:
     build:
@@ -24,9 +22,8 @@ services:
     env_file:
       - .env
     command: python -m workers.clustering
-    #uncomment the following lines to mount local directories for development purposes
-    #volumes:
-     # - ./backend:/app
+    volumes:
+      - ./backend:/app
     depends_on:
       - backend
 
@@ -39,9 +36,8 @@ services:
       BACKEND_URL: http://backend:8000
     ports:
       - "${FRONTEND_PORT:-8501}:8501"
-    #uncomment the following lines to mount local directories for development purposes
-    #volumes:
-     # - ./frontend:/app
+    volumes:
+      - ./frontend:/app
     depends_on:
       - backend
   # in case you want to use Mailpit for email testing, uncomment the following lines
