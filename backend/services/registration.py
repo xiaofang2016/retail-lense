@@ -1,8 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import HTTPException, status
-
+from core.exceptions import RegistrationConflict
 from core.security.hasher import get_hasher
 from schema.auth import CreateUserRegistration
 from schema.user import UserOut, UserRecord
@@ -15,9 +14,9 @@ class RegistrationService:
 
     def register_user(self, data: CreateUserRegistration) -> UserOut:
         if self.store.get_by_username(data.username):
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="username already exists")
+            raise RegistrationConflict("username already exists")
         if self.store.get_by_email(data.email):
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="email already exists")
+            raise RegistrationConflict("email already exists")
 
         user = UserRecord(
             user_id=str(uuid4()),

@@ -1,4 +1,4 @@
-"""FastAPI app hosted on EC2 behind the ALB. No Lambda."""
+"""FastAPI app hosted on EC2 behind the ALB. Sign-in can run on Lambda; other routes stay here."""
 
 from fastapi import FastAPI
 

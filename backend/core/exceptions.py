@@ -8,3 +8,7 @@ class IpRestricted(Exception):
 
 class IpBlockedForUser(Exception):
     """Raised when this account has blocked the caller IP."""
+
+
+class RegistrationConflict(Exception):
+    """Raised when a sign-up username or email already exists."""
