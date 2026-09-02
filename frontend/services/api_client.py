@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 # Base Function URL for both /auth/signin and /auth/register. Empty = FastAPI.
 AUTH_API_URL = os.getenv("AUTH_API_URL", "").strip().rstrip("/")
+
+logger = logging.getLogger("retaillen.frontend.http")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
 
 
 class ApiError(Exception):
@@ -43,9 +54,41 @@ def _client(token: str | None = None) -> httpx.Client:
     return httpx.Client(base_url=BACKEND_URL, timeout=30.0, headers=headers)
 
 
+def _send(client: httpx.Client, method: str, url: str, **kwargs) -> httpx.Response:
+    request_id = uuid4().hex[:12]
+    request = client.build_request(method, url, **kwargs)
+    request.headers["x-request-id"] = request_id
+    safe_url = str(request.url).split("?", 1)[0]
+    started = time.monotonic()
+    logger.info("request_id=%s method=%s url=%s event=request_started", request_id, method.upper(), safe_url)
+    try:
+        response = client.send(request)
+    except Exception as exc:
+        elapsed_ms = round((time.monotonic() - started) * 1000)
+        logger.error(
+            "request_id=%s method=%s url=%s duration_ms=%s error_type=%s event=request_failed",
+            request_id,
+            method.upper(),
+            safe_url,
+            elapsed_ms,
+            type(exc).__name__,
+        )
+        raise
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    logger.info(
+        "request_id=%s method=%s url=%s status=%s duration_ms=%s event=request_finished",
+        request_id,
+        method.upper(),
+        safe_url,
+        response.status_code,
+        elapsed_ms,
+    )
+    return response
+
+
 def _request(method: str, path: str, token: str | None = None, **kwargs) -> Any:
     with _client(token) as client:
-        response = client.request(method, path, **kwargs)
+        response = _send(client, method, path, **kwargs)
         if response.is_error:
             raise ApiError(response.status_code, _detail(response))
         if response.status_code == 204 or not response.content:
@@ -59,7 +102,7 @@ def health() -> dict[str, Any]:
 
 def transactions_sample() -> bytes:
     with _client() as client:
-        response = client.get("/uploads/transactions-sample")
+        response = _send(client, "GET", "/uploads/transactions-sample")
         if response.is_error:
             raise ApiError(response.status_code, _detail(response))
         return response.content
@@ -75,7 +118,7 @@ def register(email: str, username: str, full_name: str, password: str, password_
     }
     if AUTH_API_URL:
         with httpx.Client(timeout=30.0) as client:
-            response = client.post(f"{AUTH_API_URL}/auth/register", json=payload)
+            response = _send(client, "POST", f"{AUTH_API_URL}/auth/register", json=payload)
             if response.is_error:
                 raise ApiError(response.status_code, _detail(response))
             return response.json()
@@ -86,7 +129,7 @@ def signin(username: str, password: str, remember_me: bool = False) -> dict[str,
     payload = {"username": username, "password": password, "remember_me": remember_me}
     if AUTH_API_URL:
         with httpx.Client(timeout=30.0) as client:
-            response = client.post(f"{AUTH_API_URL}/auth/signin", json=payload)
+            response = _send(client, "POST", f"{AUTH_API_URL}/auth/signin", json=payload)
             if response.is_error:
                 raise ApiError(response.status_code, _detail(response))
             return response.json()
