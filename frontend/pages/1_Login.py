@@ -23,7 +23,7 @@ with st.form("signin"):
 if submitted:
     try:
         data = api_client.signin(username.strip(), password, remember_me=remember)
-        session.save_login(data["access_token"])
+        session.save_login(data["access_token"], remember_me=remember)
         st.rerun()
     except ApiError as exc:
         st.error(exc.detail)

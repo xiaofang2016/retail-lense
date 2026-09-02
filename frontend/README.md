@@ -110,9 +110,29 @@ There is no CSS module system. Keep extra CSS in `_CSS`. Comments and docs in th
 | Block / unblock IP | `block_ip` / `unblock_ip` | `/auth/blocked-ips` |
 | CSV template | `transactions_sample` | `GET /uploads/transactions-sample` |
 
-JWT is stored in `st.session_state["access_token"]` by `session.save_login()`. It is not in a cookie.
+Without Redis, JWT is stored only in `st.session_state["access_token"]`. With
+Redis enabled, the JWT is stored in Redis and the cookie contains only an
+encrypted random session ID.
 
 On EC2, systemd sets `BACKEND_URL=http://127.0.0.1:8000` (`infra/systemd/retaillen-ui.service`).
+
+## Shared sessions on two EC2 instances
+
+When `REDIS_URL` is configured, Streamlit stores the JWT and user record in
+Redis. The browser receives only an encrypted random session ID. Both
+Streamlit instances must use the same `REDIS_URL` and
+`SESSION_COOKIE_PASSWORD`.
+
+Run the Redis Compose profile on exactly one EC2 instance:
+
+```bash
+docker compose --profile session-store up -d redis
+```
+
+Set `REDIS_URL=redis://:password@<redis-private-ip>:6379/0` on both EC2
+instances, then recreate both frontend containers. Restrict security group
+port 6379 to the application EC2 security group. This single-host Redis
+design has no automatic failover.
 
 ## Adding a new page
 

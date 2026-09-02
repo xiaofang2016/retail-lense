@@ -2,3 +2,5 @@ streamlit>=1.36.0
 httpx>=0.27.0
 pandas>=2.2.0
 plotly>=5.22.0
+redis>=8.1.0
+streamlit-cookies-manager-v2>=0.3.1
