@@ -8,6 +8,8 @@ from typing import Any
 import httpx
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+# Base Function URL for both /auth/signin and /auth/register. Empty = FastAPI.
+AUTH_API_URL = os.getenv("AUTH_API_URL", "").strip().rstrip("/")
 
 
 class ApiError(Exception):
@@ -64,25 +66,31 @@ def transactions_sample() -> bytes:
 
 
 def register(email: str, username: str, full_name: str, password: str, password_confirm: str) -> dict[str, Any]:
-    return _request(
-        "POST",
-        "/auth/register",
-        json={
-            "email": email,
-            "username": username,
-            "full_name": full_name,
-            "password": password,
-            "password_confirm": password_confirm,
-        },
-    )
+    payload = {
+        "email": email,
+        "username": username,
+        "full_name": full_name,
+        "password": password,
+        "password_confirm": password_confirm,
+    }
+    if AUTH_API_URL:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(f"{AUTH_API_URL}/auth/register", json=payload)
+            if response.is_error:
+                raise ApiError(response.status_code, _detail(response))
+            return response.json()
+    return _request("POST", "/auth/register", json=payload)
 
 
 def signin(username: str, password: str, remember_me: bool = False) -> dict[str, Any]:
-    return _request(
-        "POST",
-        "/auth/signin",
-        json={"username": username, "password": password, "remember_me": remember_me},
-    )
+    payload = {"username": username, "password": password, "remember_me": remember_me}
+    if AUTH_API_URL:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(f"{AUTH_API_URL}/auth/signin", json=payload)
+            if response.is_error:
+                raise ApiError(response.status_code, _detail(response))
+            return response.json()
+    return _request("POST", "/auth/signin", json=payload)
 
 
 def me(token: str) -> dict[str, Any]:

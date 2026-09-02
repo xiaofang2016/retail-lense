@@ -56,7 +56,7 @@ export BACKEND_URL=http://localhost:8000
 
 UI: http://localhost:8501
 
-The API must be running separately (`./infra/scripts/run_api.sh` from the repo root). Streamlit never talks to AWS; it only calls FastAPI (`BACKEND_URL`).
+The API must be running separately (`./infra/scripts/run_api.sh` from the repo root). Streamlit does not use boto3. Sign-in and sign-up go to FastAPI unless `AUTH_API_URL` is set to the Lambda Function URL. Login history is always FastAPI `GET /auth/login-history`.
 
 ## How a page is built
 
@@ -101,8 +101,8 @@ There is no CSS module system. Keep extra CSS in `_CSS`. Comments and docs in th
 
 | UI action | Function | API |
 | --- | --- | --- |
-| Sign up | `register` | `POST /auth/register` |
-| Sign in | `signin` | `POST /auth/signin` |
+| Sign up | `register` | `POST /auth/register` (or `AUTH_API_URL/auth/register`) |
+| Sign in | `signin` | `POST /auth/signin` (or `AUTH_API_URL/auth/signin`) |
 | Current user | `me` | `GET /users/me` |
 | Forgot password | `forgot_password` | `POST /users/forgot-password` |
 | Reset password | `reset_password` | `POST /users/reset-password` |

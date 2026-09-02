@@ -1,0 +1,17 @@
+{
+  "version": "2.0",
+  "routeKey": "$default",
+  "rawPath": "/auth/register",
+  "requestContext": {
+    "http": {
+      "method": "POST",
+      "sourceIp": "203.0.113.10",
+      "userAgent": "console-test"
+    }
+  },
+  "headers": {
+    "content-type": "application/json"
+  },
+  "isBase64Encoded": false,
+  "body": "{\"email\":\"new@example.com\",\"username\":\"newuser\",\"full_name\":\"New User\",\"password\":\"password1\",\"password_confirm\":\"password1\"}"
+}

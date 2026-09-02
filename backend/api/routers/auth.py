@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 
 from api.dependencies import get_current_user
-from core.exceptions import IpBlockedForUser, IpRestricted, UserLockedOut
+from core.exceptions import IpBlockedForUser, IpRestricted, RegistrationConflict, UserLockedOut
 from core.security.request_ip import client_ip
 from core.security.tokens import create_access_token
 from core.settings import get_settings
@@ -43,7 +43,10 @@ def _token_or_raise(username: str, password: str, remember_me: bool, ip: str, us
 def register_new_user(data: CreateUserRegistration) -> UserOut:
     if not get_settings().allow_signup:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="User registration is disabled")
-    return RegistrationService().register_user(data)
+    try:
+        return RegistrationService().register_user(data)
+    except RegistrationConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/token")
