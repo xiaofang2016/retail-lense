@@ -41,6 +41,7 @@ def _int(name: str, default: int) -> int:
 class Settings:
     app_env: str
     allow_signup: bool
+    jwt_secret_name: str
     jwt_secret: str
     jwt_algorithm: str
     token_time_hours: int
@@ -90,12 +91,23 @@ class Settings:
         return f"{self.base_url}{path.rstrip('/')}?token={token}"
 
 
+def _load_jwt_secret(app_env: str, secret_name: str) -> str:
+    if app_env == "aws":
+        if not secret_name:
+            raise RuntimeError("JWT_SECRET_NAME is required when APP_ENV=aws")
+        from services.secrets import get_secret
+
+        return get_secret(secret_name)
+    return os.getenv("JWT_SECRET") or os.getenv("SECRET") or "local-dev-only-change-me"
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     settings = Settings()
     settings.app_env = os.getenv("APP_ENV", "local")
     settings.allow_signup = _bool("ALLOW_SIGNUP", True)
-    settings.jwt_secret = os.getenv("JWT_SECRET") or os.getenv("SECRET") or "local-dev-only-change-me"
+    settings.jwt_secret_name = os.getenv("JWT_SECRET_NAME", "").strip()
+    settings.jwt_secret = _load_jwt_secret(settings.app_env, settings.jwt_secret_name)
     settings.jwt_algorithm = "HS256"
     settings.token_time_hours = max(1, _int("TOKEN_TIME", 48))
     settings.remember_me_days = _int("REMEMBER_ME_DAYS", 14)
