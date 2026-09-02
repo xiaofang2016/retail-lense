@@ -7,14 +7,16 @@ services:
     environment:
       BACKEND_PORT: "8000"
       #DDB_ENDPOINT: http://dynamodb:8000 #leave it blank to use AWS DynamoDB service instead of local DynamoDB
-      AWS_PROFILE: mike
+      #AWS_PROFILE: my-aws-profile #leave it blank to use default AWS profile, for ec2 instance, you can use IAM role instead of AWS profile
+
       AWS_DEFAULT_REGION: us-east-1    
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - ./backend:/app
-      - ~/.aws:/root/.aws:ro
+    #uncomment the following lines to mount local directories for development purposes
+    #volumes: 
+     # - ./backend:/app
+     # - ~/.aws:/root/.aws:ro
 
   worker:
     build:
@@ -22,8 +24,9 @@ services:
     env_file:
       - .env
     command: python -m workers.clustering
-    volumes:
-      - ./backend:/app
+    #uncomment the following lines to mount local directories for development purposes
+    #volumes:
+     # - ./backend:/app
     depends_on:
       - backend
 
@@ -36,25 +39,25 @@ services:
       BACKEND_URL: http://backend:8000
     ports:
       - "${FRONTEND_PORT:-8501}:8501"
-    volumes:
-      - ./frontend:/app
+    #uncomment the following lines to mount local directories for development purposes
+    #volumes:
+     # - ./frontend:/app
     depends_on:
       - backend
+  # in case you want to use Mailpit for email testing, uncomment the following lines
+  #mailpit:
+  #  image: axllent/mailpit:v1.21
+  #  ports:
+  #    - "1025:1025"
+  #    - "8025:8025"
+  # in case you want to use local DynamoDB for testing, uncomment the following lines
+  # dynamodb:
+  #  image: amazon/dynamodb-local:2.6.1
+  #  user: root
+  #  command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /data"
+  #  ports:
+  #    - "8001:8000"
+  #  volumes:
+  #    - dynamodb-data:/data
 
-  mailpit:
-    image: axllent/mailpit:v1.21
-    ports:
-      - "1025:1025"
-      - "8025:8025"
-
-  dynamodb:
-    image: amazon/dynamodb-local:2.6.1
-    user: root
-    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /data"
-    ports:
-      - "8001:8000"
-    volumes:
-      - dynamodb-data:/data
-
-volumes:
-  dynamodb-data:
+ 
