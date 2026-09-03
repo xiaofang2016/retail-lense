@@ -12,24 +12,29 @@ from services import api_client, session_store
 
 SESSION_COOKIE = "session_id"
 COOKIE_PREFIX = "retaillen/"
-_cookie_manager: Any = None
+COOKIE_MANAGER_STATE_KEY = "_retaillen_cookie_manager"
 
 
 def _cookies():
-    global _cookie_manager
-    if _cookie_manager is None:
-        password = os.getenv("SESSION_COOKIE_PASSWORD", "").strip()
-        if not password:
-            raise RuntimeError("SESSION_COOKIE_PASSWORD is required when REDIS_URL is configured")
-        from streamlit_cookies_manager import EncryptedCookieManager
+    manager = st.session_state.get(COOKIE_MANAGER_STATE_KEY)
+    if manager is not None:
+        return manager
 
-        _cookie_manager = EncryptedCookieManager(
-            prefix=COOKIE_PREFIX,
-            password=password,
-        )
-    if not _cookie_manager.ready():
+    password = os.getenv("SESSION_COOKIE_PASSWORD", "").strip()
+    if not password:
+        raise RuntimeError("SESSION_COOKIE_PASSWORD is required when REDIS_URL is configured")
+    from streamlit_cookies_manager import EncryptedCookieManager
+
+    manager = EncryptedCookieManager(
+        prefix=COOKIE_PREFIX,
+        password=password,
+    )
+    if not manager.ready():
+        # Do not cache an unready manager. The next Streamlit rerun must invoke
+        # the component again to receive the browser cookies.
         st.stop()
-    return _cookie_manager
+    st.session_state[COOKIE_MANAGER_STATE_KEY] = manager
+    return manager
 
 
 def _restore() -> None:
