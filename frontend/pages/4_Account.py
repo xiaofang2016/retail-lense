@@ -21,7 +21,9 @@ st.caption(f"{user.get('username', '')} · {user.get('email', '')}")
 
 if st.button("Sign out"):
     session.sign_out()
-    st.rerun()
+    # Let the cookie component finish deleting the browser session cookie.
+    st.success("Signed out.")
+    st.stop()
 
 st.divider()
 st.subheader("Blocked IPs")

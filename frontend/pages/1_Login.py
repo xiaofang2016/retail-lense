@@ -24,7 +24,8 @@ if submitted:
     try:
         data = api_client.signin(username.strip(), password, remember_me=remember)
         session.save_login(data["access_token"], remember_me=remember)
-        st.rerun()
+        # Let the cookie component finish writing before another Streamlit run.
+        st.success("Signed in. You can now open the Account page.")
     except ApiError as exc:
         st.error(exc.detail)
     except Exception as exc:
