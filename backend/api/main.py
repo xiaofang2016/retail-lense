@@ -1,6 +1,7 @@
 """FastAPI app hosted on EC2 behind the ALB. Sign-in can run on Lambda; other routes stay here."""
 
 import logging
+import os
 import time
 from collections.abc import Awaitable, Callable
 from uuid import uuid4
@@ -11,6 +12,20 @@ from api.routers import analyses, auth, reports, uploads, users
 from core.security.request_ip import client_ip
 from core.settings import get_settings
 
+def _configure_logging() -> None:
+    level_name = (os.getenv("APP_LOG_LEVEL", "INFO") or "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        root.addHandler(handler)
+    root.setLevel(level)
+
+    logging.getLogger("uvicorn").setLevel(level)
+    logging.getLogger("uvicorn.error").setLevel(level)
+    logging.getLogger("uvicorn.access").setLevel(level)
+
 app = FastAPI(title="Retail Lense API", version="0.1.0")
 
 logger = logging.getLogger("retaillen.backend.http")
@@ -20,7 +35,7 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
-
+_configure_logging()
 
 @app.middleware("http")
 async def log_http_request(

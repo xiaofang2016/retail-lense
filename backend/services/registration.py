@@ -29,10 +29,4 @@ class RegistrationService:
             created_at=datetime.now(UTC),
         )
         created = self.store.create(user)
-        return UserOut(
-            user_id=created.user_id,
-            email=created.email,
-            username=created.username,
-            full_name=created.full_name,
-            created_at=created.created_at,
-        )
+        return UserOut.from_record(created)

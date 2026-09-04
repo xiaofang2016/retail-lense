@@ -1,8 +1,12 @@
+import re
 from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 from pydantic_core.core_schema import ValidationInfo
+
+_E164 = re.compile(r"^\+[1-9]\d{7,14}$")
+_OTP_CODE = re.compile(r"^\d{6}$")
 
 
 class CreateUserRegistration(BaseModel):
@@ -61,6 +65,35 @@ class BlockedIpOut(BaseModel):
 
 class BlockedIpList(BaseModel):
     items: list[BlockedIpOut]
+
+
+class PhoneStartIn(BaseModel):
+    phone: str
+
+    @field_validator("phone")
+    @classmethod
+    def e164(cls, value: str) -> str:
+        phone = value.strip().replace(" ", "").replace("-", "")
+        if not _E164.match(phone):
+            raise ValueError("phone must be E.164 (e.g. +64211234567)")
+        return phone
+
+
+class PhoneConfirmIn(BaseModel):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def six_digits(cls, value: str) -> str:
+        code = value.strip()
+        if not _OTP_CODE.match(code):
+            raise ValueError("code must be 6 digits")
+        return code
+
+
+class VerifyOtpIn(PhoneConfirmIn):
+    username: str
+    remember_me: bool = False
 
 
 class ForgotPassword(BaseModel):

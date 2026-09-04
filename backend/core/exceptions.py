@@ -12,3 +12,12 @@ class IpBlockedForUser(Exception):
 
 class RegistrationConflict(Exception):
     """Raised when a sign-up username or email already exists."""
+
+
+class TwoFactorError(Exception):
+    """SMS 2FA bind / verify failures."""
+
+    def __init__(self, detail: str, status_code: int = 400) -> None:
+        self.detail = detail
+        self.status_code = status_code
+        super().__init__(detail)

@@ -136,6 +136,26 @@ def signin(username: str, password: str, remember_me: bool = False) -> dict[str,
     return _request("POST", "/auth/signin", json=payload)
 
 
+def verify_otp(username: str, code: str, remember_me: bool = False) -> dict[str, Any]:
+    return _request(
+        "POST",
+        "/auth/verify-otp",
+        json={"username": username, "code": code, "remember_me": remember_me},
+    )
+
+
+def start_phone_2fa(token: str, phone: str) -> dict[str, Any]:
+    return _request("POST", "/auth/2fa/phone", token=token, json={"phone": phone})
+
+
+def confirm_phone_2fa(token: str, code: str) -> dict[str, Any]:
+    return _request("POST", "/auth/2fa/confirm", token=token, json={"code": code})
+
+
+def disable_2fa(token: str) -> dict[str, Any]:
+    return _request("POST", "/auth/2fa/disable", token=token)
+
+
 def me(token: str) -> dict[str, Any]:
     return _request("GET", "/users/me", token=token)
 
