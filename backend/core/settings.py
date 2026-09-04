@@ -60,6 +60,11 @@ class Settings:
     ddb_users_table: str
     ddb_login_history_table: str
     ddb_password_reset_table: str
+    ddb_otps_table: str
+    sns_sms_enabled: bool
+    otp_ttl_seconds: int
+    otp_resend_seconds: int
+    otp_max_attempts: int
     base_url: str
     password_reset_path: str
     password_reset_token_hours: int
@@ -131,6 +136,11 @@ def get_settings() -> Settings:
     settings.ddb_users_table = os.getenv("DDB_USERS_TABLE", "retaillen-users")
     settings.ddb_login_history_table = os.getenv("DDB_LOGIN_HISTORY_TABLE", "retaillen-login-history")
     settings.ddb_password_reset_table = os.getenv("DDB_PASSWORD_RESET_TABLE", "retaillen-password-reset")
+    settings.ddb_otps_table = os.getenv("DDB_OTPS_TABLE", "retaillen-otps")
+    settings.sns_sms_enabled = _bool("SNS_SMS_ENABLED", False)
+    settings.otp_ttl_seconds = max(60, _int("OTP_TTL_SECONDS", 300))
+    settings.otp_resend_seconds = max(15, _int("OTP_RESEND_SECONDS", 60))
+    settings.otp_max_attempts = max(1, _int("OTP_MAX_ATTEMPTS", 5))
     settings.base_url = os.getenv("BASE_URL", "http://localhost:8501").rstrip("/")
     settings.password_reset_path = os.getenv("PASSWORD_RESET_PATH", "/Reset_Password")
     settings.password_reset_token_hours = max(1, _int("PASSWORD_RESET_TOKEN_HOURS", 48))

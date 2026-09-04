@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from api.main import app
 from services.email import MemoryEmailSender, get_email_sender
+from services.sns import MemorySnsSender, get_sns_sender
 from services.user_store import get_user_store
 
 
@@ -19,10 +20,15 @@ def clean_store():
     sender = get_email_sender()
     if isinstance(sender, MemoryEmailSender):
         sender.clear()
+    sms = get_sns_sender()
+    if isinstance(sms, MemorySnsSender):
+        sms.clear()
     yield
     store.reset()
     if isinstance(sender, MemoryEmailSender):
         sender.clear()
+    if isinstance(sms, MemorySnsSender):
+        sms.clear()
 
 
 @pytest.fixture

@@ -1,15 +1,23 @@
 """Credential login, lockout, login history, and per-IP failed-attempt limits."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from core.exceptions import IpBlockedForUser, IpRestricted, UserLockedOut
+from core.exceptions import IpBlockedForUser, IpRestricted, TwoFactorError, UserLockedOut
 from core.security.hasher import FAKE_PASSWORD_HASH, get_hasher
 from core.security.ip import normalize_ip
 from core.security.tokens import create_access_token
 from core.settings import get_settings
 from schema.user import LoginEvent, UserOut, UserRecord
+from services.two_factor import TwoFactorService
 from services.user_store import UserStore, get_user_store
+
+
+@dataclass
+class AuthResult:
+    access_token: str | None = None
+    phone_hint: str = ""
 
 
 class AuthService:
@@ -104,7 +112,9 @@ class AuthService:
         fresh.blocked_ips = [item for item in fresh.blocked_ips if item != ip]
         return self.store.update(fresh)
 
-    def authenticate(self, username: str, password: str, remember_me: bool, ip: str, user_agent: str = "") -> str:
+    def authenticate(
+        self, username: str, password: str, remember_me: bool, ip: str, user_agent: str = ""
+    ) -> AuthResult:
         self._enforce_ip_limit(ip)
 
         user = self.try_get_user(username)
@@ -135,6 +145,22 @@ class AuthService:
 
         user.login_attempts = 0
         self.store.update(user)
+
+        if user.two_factor_enabled and user.phone_verified and user.phone:
+            hint = TwoFactorService(self.store).send_login_otp(user)
+            return AuthResult(phone_hint=hint)
+
+        self._record_event(user_id=user.user_id, username=username, ip=ip, success=True, user_agent=user_agent)
+        return AuthResult(access_token=create_access_token(user.user_id, remember_me=remember_me))
+
+    def verify_login_otp(
+        self, username: str, code: str, remember_me: bool, ip: str, user_agent: str = ""
+    ) -> str:
+        self._enforce_ip_limit(ip)
+        user = self.try_get_user(username)
+        if not user or not (user.two_factor_enabled and user.phone_verified and user.phone):
+            raise TwoFactorError("Invalid or expired code", 400)
+        TwoFactorService(self.store).consume_login(user, code)
         self._record_event(user_id=user.user_id, username=username, ip=ip, success=True, user_agent=user_agent)
         return create_access_token(user.user_id, remember_me=remember_me)
 
@@ -142,10 +168,4 @@ class AuthService:
         return self.store.list_login_events(user_id, limit=limit)
 
     def to_public(self, user: UserRecord) -> UserOut:
-        return UserOut(
-            user_id=user.user_id,
-            email=user.email,
-            username=user.username,
-            full_name=user.full_name,
-            created_at=user.created_at,
-        )
+        return UserOut.from_record(user)

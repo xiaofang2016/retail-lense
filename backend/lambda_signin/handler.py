@@ -8,15 +8,33 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import logging  
 from typing import Any
 
-from core.exceptions import IpBlockedForUser, IpRestricted, RegistrationConflict, UserLockedOut
+from core.exceptions import IpBlockedForUser, IpRestricted, RegistrationConflict, TwoFactorError, UserLockedOut
 from core.settings import get_settings
 from pydantic import ValidationError
 from schema.auth import CreateUserRegistration, CredentialsRequest, TokenResponse
 from services.auth_service import AuthService
 from services.registration import RegistrationService
 
+
+def _configure_logging() -> None:
+    level_name = (os.getenv("APP_LOG_LEVEL", "INFO") or "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        root.addHandler(handler)
+    root.setLevel(level)
+
+    logging.getLogger("uvicorn").setLevel(level)
+    logging.getLogger("uvicorn.error").setLevel(level)
+    logging.getLogger("uvicorn.access").setLevel(level)
+
+_configure_logging() # ensure logging is configured before any other imports
 
 def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -81,7 +99,7 @@ def _signin(event: dict[str, Any]) -> dict[str, Any]:
         return _response(400, {"detail": "Invalid request body"})
 
     try:
-        token = AuthService().authenticate(
+        result = AuthService().authenticate(
             data.username,
             data.password,
             data.remember_me,
@@ -94,10 +112,14 @@ def _signin(event: dict[str, Any]) -> dict[str, Any]:
         return _response(403, {"detail": "This IP is blocked for this account"})
     except IpRestricted:
         return _response(429, {"detail": "Too many failed logins from this IP"})
+    except TwoFactorError as exc:
+        return _response(exc.status_code, {"detail": exc.detail})
     except LookupError:
         return _response(401, {"detail": "Incorrect username or password"})
 
-    return _response(200, TokenResponse.respond(token))
+    if not result.access_token:
+        return _response(200, {"status": "otp_required", "phone_hint": result.phone_hint})
+    return _response(200, TokenResponse.respond(result.access_token))
 
 
 def _register(event: dict[str, Any]) -> dict[str, Any]:

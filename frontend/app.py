@@ -1,9 +1,12 @@
 """Retail Lense home page."""
 
+ 
 import streamlit as st
 
 from components.style import setup
 from services import session
+
+
 
 setup("Home")
 

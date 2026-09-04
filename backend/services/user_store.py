@@ -8,7 +8,7 @@ from functools import lru_cache
 from typing import Protocol
 
 from core.settings import get_settings
-from schema.user import LoginEvent, PasswordResetRecord, UserRecord
+from schema.user import LoginEvent, OtpRecord, PasswordResetRecord, UserRecord
 
 
 class UserStore(Protocol):
@@ -34,6 +34,14 @@ class UserStore(Protocol):
 
     def delete_reset_token(self, token: str) -> None: ...
 
+    def get_by_phone(self, phone: str) -> UserRecord | None: ...
+
+    def save_otp(self, record: OtpRecord) -> OtpRecord: ...
+
+    def get_otp(self, email: str) -> OtpRecord | None: ...
+
+    def delete_otp(self, email: str) -> None: ...
+
     def reset(self) -> None: ...
 
 
@@ -52,12 +60,14 @@ class MemoryUserStore:
         self._by_id: dict[str, UserRecord] = {}
         self._events: list[LoginEvent] = []
         self._reset_tokens: dict[str, PasswordResetRecord] = {}
+        self._otps: dict[str, OtpRecord] = {}
 
     def reset(self) -> None:
         with self._lock:
             self._by_id.clear()
             self._events.clear()
             self._reset_tokens.clear()
+            self._otps.clear()
 
     def get_by_id(self, user_id: str) -> UserRecord | None:
         return self._by_id.get(user_id)
@@ -116,6 +126,27 @@ class MemoryUserStore:
         with self._lock:
             self._reset_tokens.pop(token, None)
 
+    def get_by_phone(self, phone: str) -> UserRecord | None:
+        key = (phone or "").strip()
+        if not key:
+            return None
+        for user in self._by_id.values():
+            if user.phone_verified and user.phone == key:
+                return user
+        return None
+
+    def save_otp(self, record: OtpRecord) -> OtpRecord:
+        with self._lock:
+            self._otps[record.email.lower()] = record
+        return record
+
+    def get_otp(self, email: str) -> OtpRecord | None:
+        return self._otps.get(email.lower())
+
+    def delete_otp(self, email: str) -> None:
+        with self._lock:
+            self._otps.pop(email.lower(), None)
+
 
 class DynamoUserStore:
     def __init__(self) -> None:
@@ -126,6 +157,7 @@ class DynamoUserStore:
         self._users = self._ddb.Table(settings.ddb_users_table)
         self._history = self._ddb.Table(settings.ddb_login_history_table)
         self._resets = self._ddb.Table(settings.ddb_password_reset_table)
+        self._otps = self._ddb.Table(settings.ddb_otps_table)
 
     def reset(self) -> None:
         raise RuntimeError("reset() is only supported on the in-memory store")
@@ -141,6 +173,9 @@ class DynamoUserStore:
             locked_at=_parse_dt(item.get("locked_at")),
             created_at=_parse_dt(item["created_at"]) or datetime.now(UTC),
             blocked_ips=[str(ip) for ip in (item.get("blocked_ips") or [])],
+            phone=str(item.get("phone") or ""),
+            phone_verified=bool(item.get("phone_verified")),
+            two_factor_enabled=bool(item.get("two_factor_enabled")),
         )
 
     def get_by_id(self, user_id: str) -> UserRecord | None:
@@ -178,6 +213,9 @@ class DynamoUserStore:
             "login_attempts": user.login_attempts,
             "created_at": user.created_at.isoformat(),
             "blocked_ips": list(user.blocked_ips),
+            "phone": user.phone or "",
+            "phone_verified": bool(user.phone_verified),
+            "two_factor_enabled": bool(user.two_factor_enabled),
         }
         if user.locked_at:
             item["locked_at"] = user.locked_at.isoformat()
@@ -267,6 +305,58 @@ class DynamoUserStore:
 
     def delete_reset_token(self, token: str) -> None:
         self._resets.delete_item(Key={"token": token})
+
+    def get_by_phone(self, phone: str) -> UserRecord | None:
+        key = (phone or "").strip()
+        if not key:
+            return None
+        kwargs: dict = {
+            "FilterExpression": "phone = :p AND phone_verified = :t",
+            "ExpressionAttributeValues": {":p": key, ":t": True},
+        }
+        while True:
+            response = self._users.scan(**kwargs)
+            items = response.get("Items") or []
+            if items:
+                return self._item_to_user(items[0])
+            last = response.get("LastEvaluatedKey")
+            if not last:
+                return None
+            kwargs["ExclusiveStartKey"] = last
+
+    def save_otp(self, record: OtpRecord) -> OtpRecord:
+        ttl = int(record.created_at.timestamp()) + get_settings().otp_ttl_seconds
+        self._otps.put_item(
+            Item={
+                "email": record.email.lower(),
+                "phone": record.phone,
+                "code_hash": record.code_hash,
+                "purpose": record.purpose,
+                "user_id": record.user_id,
+                "attempts": record.attempts,
+                "created_at": record.created_at.isoformat(),
+                "ttl": ttl,
+            }
+        )
+        return record
+
+    def get_otp(self, email: str) -> OtpRecord | None:
+        response = self._otps.get_item(Key={"email": email.lower()})
+        item = response.get("Item")
+        if not item:
+            return None
+        return OtpRecord(
+            email=item["email"],
+            phone=item.get("phone") or "",
+            code_hash=item["code_hash"],
+            purpose=item["purpose"],
+            user_id=item.get("user_id") or "",
+            attempts=int(item.get("attempts") or 0),
+            created_at=_parse_dt(item.get("created_at")) or datetime.now(UTC),
+        )
+
+    def delete_otp(self, email: str) -> None:
+        self._otps.delete_item(Key={"email": email.lower()})
 
 
 @lru_cache(maxsize=1)

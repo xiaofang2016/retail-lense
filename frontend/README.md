@@ -103,6 +103,8 @@ There is no CSS module system. Keep extra CSS in `_CSS`. Comments and docs in th
 | --- | --- | --- |
 | Sign up | `register` | `POST /auth/register` (or `AUTH_API_URL/auth/register`) |
 | Sign in | `signin` | `POST /auth/signin` (or `AUTH_API_URL/auth/signin`) |
+| SMS 2FA code | `verify_otp` | `POST /auth/verify-otp` (always FastAPI) |
+| Bind / confirm / disable 2FA | `start_phone_2fa` / `confirm_phone_2fa` / `disable_2fa` | `/auth/2fa/*` |
 | Current user | `me` | `GET /users/me` |
 | Forgot password | `forgot_password` | `POST /users/forgot-password` |
 | Reset password | `reset_password` | `POST /users/reset-password` |
