@@ -8,21 +8,23 @@ REGION="us-east-1"
 
 case "${1:-help}" in
   start)
-    echo "🚀 Starting local DynamoDB..."
+    echo " Starting local DynamoDB..."
     docker compose up -d dynamodb
-    echo "✅ DynamoDB running on $ENDPOINT"
+    echo " DynamoDB running on $ENDPOINT"
     ;;
-    
+     
   stop)
-    echo "🛑 Stopping local DynamoDB..."
+    echo "Stopping local DynamoDB..."
     docker compose stop dynamodb
-    echo "✅ DynamoDB stopped"
+
+    echo " DynamoDB stopped"
     ;;
     
   restart)
-    echo "🔄 Restarting local DynamoDB..."
+    echo "Restarting local DynamoDB..."
     docker compose restart dynamodb
-    echo "✅ DynamoDB restarted"
+
+    echo " DynamoDB restarted"
     ;;
     
   reset)
@@ -33,42 +35,48 @@ case "${1:-help}" in
       docker compose down dynamodb
       docker volume rm retail-lense_dynamodb-data || true
       docker compose up -d dynamodb
-      echo "✅ DynamoDB reset complete"
+
+      echo " DynamoDB reset complete"
     else
-      echo "❌ Reset cancelled"
+      echo " Reset cancelled"
     fi
     ;;
     
   list)
-    echo "📋 Listing tables in local DynamoDB..."
+    echo " Listing tables in local DynamoDB..."
+
     aws dynamodb list-tables --endpoint-url $ENDPOINT --region $REGION
     ;;
     
   create)
-    echo "🏗️  Creating tables in local DynamoDB..."
+    echo "  Creating tables in local DynamoDB..."
+
     DDB_ENDPOINT=$ENDPOINT python3 infra/scripts/create_dynamodb_tables.py --yes
     ;;
     
   migrate)
-    echo "🔄 Running migrations..."
+    echo " Running migrations..."
+
     DDB_ENDPOINT=$ENDPOINT python3 infra/scripts/run_migrations.py
     ;;
     
   scan)
     if [ -z "${2:-}" ]; then
-      echo "❌ Usage: $0 scan <table-name>"
+      echo " Usage: $0 scan <table-name>"
       exit 1
     fi
-    echo "📊 Scanning table: $2"
+    echo " Scanning table: $2"
     aws dynamodb scan --table-name "$2" --endpoint-url $ENDPOINT --region $REGION
     ;;
     
   describe)
     if [ -z "${2:-}" ]; then
-      echo "❌ Usage: $0 describe <table-name>"
+      echo " Usage: $0 describe <table-name>"
+
       exit 1
     fi
-    echo "📝 Describing table: $2"
+    echo " Describing table: $2"
+    
     aws dynamodb describe-table --table-name "$2" --endpoint-url $ENDPOINT --region $REGION
     ;;
     

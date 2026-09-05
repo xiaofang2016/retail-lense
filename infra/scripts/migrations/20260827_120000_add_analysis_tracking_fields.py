@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 def up(dynamodb):
     """
-    Add new attributes to existing analyses records:
+    Adds new attributes to existing analyses records:
     - s3_result_key: S3 path to analysis results
     - status: Analysis status (pending, processing, completed, failed)
     - submitted_date: When the analysis was submitted
@@ -28,6 +28,7 @@ def up(dynamodb):
     print("  • status")
     print("  • submitted_date")
     print("  • completed_date")
+
     print()
     
     table_name = os.getenv("DDB_ANALYSES_TABLE", "retaillen-analyses")
@@ -38,8 +39,9 @@ def up(dynamodb):
     items = response.get('Items', [])
     
     if not items:
-        print("ℹ️  No existing records found - table is empty")
-        print("✅ Migration complete - new records will include all fields")
+        print("No existing records found - table is empty")
+
+        print("Migration complete - new records will include all fields")
         return
     
     updated_count = 0
@@ -76,8 +78,8 @@ def up(dynamodb):
             )
             updated_count += 1
     
-    print(f"✅ Updated {updated_count} existing records")
-    print("✅ Migration complete!")
+    print(f"Updated {updated_count} existing records")
+    print("Migration complete!")
 
 
 def down(dynamodb):
@@ -99,8 +101,8 @@ def down(dynamodb):
     items = response.get('Items', [])
     
     if not items:
-        print("ℹ️  No records found - table is empty")
-        print("✅ Rollback complete")
+        print(" No records found - table is empty")
+        print("Rollback complete")
         return
     
     removed_count = 0
@@ -126,5 +128,5 @@ def down(dynamodb):
             )
             removed_count += 1
     
-    print(f"✅ Removed tracking fields from {removed_count} records")
-    print("✅ Rollback complete!")
+    print(f" Removed tracking fields from {removed_count} records")
+    print(" Rollback complete!")

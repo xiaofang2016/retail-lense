@@ -88,10 +88,10 @@ def run_migrations(direction="up"):
             
             print()
         except Exception as e:
-            print(f"❌ Error running migration {migration_file.name}: {e}")
+            print(f" Error running migration {migration_file.name}: {e}")
             sys.exit(1)
     
-    print(f"✅ All migrations completed successfully ({direction})")
+    print(f" All migrations completed successfully ({direction})")
 
 
 def main():
