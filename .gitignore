@@ -32,6 +32,15 @@ data/uci/
 *.xlsx
 !data/samples/**
 
+# Lambda build artifacts
+backend/lambda/*/package/
+backend/lambda/*/layer/
+backend/lambda/*/*.zip
+backend/lambda/*/function.zip
+backend/lambda/*/ml-dependencies-layer.zip
+backend/lambda/*/test-event.json
+backend/lambda/*/response.json
+
 # Docker / Terraform leftovers
 *.tfstate
 *.tfstate.*
