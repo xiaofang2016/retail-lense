@@ -106,36 +106,40 @@ if st.button("Sign out"):
     st.stop()
 
 st.divider()
-st.subheader("Blocked IPs")
-st.caption("Blocked addresses cannot sign in to this account. Other accounts are unchanged.")
+if user.get("is_admin"):
+    st.subheader("Blocked IPs")
+    st.caption("Blocked addresses cannot sign in to this account. Other accounts are unchanged.")
 
-try:
-    blocked = [item["ip"] for item in (api_client.list_blocked_ips(token).get("items") or [])]
-except ApiError as exc:
-    st.error(exc.detail)
-    blocked = []
+    try:
+        blocked = [item["ip"] for item in (api_client.list_blocked_ips(token).get("items") or [])]
+    except ApiError as exc:
+        st.error(exc.detail)
+        blocked = []
 
-if not blocked:
-    st.caption("None.")
-else:
-    for ip in blocked:
-        left, right = st.columns([3, 1])
-        left.write(ip)
-        if right.button("Unblock", key=f"unblock-{ip}"):
+    if not blocked:
+        st.caption("None.")
+    else:
+        for ip in blocked:
+            left, right = st.columns([3, 1])
+            left.write(ip)
+            if right.button("Unblock", key=f"unblock-{ip}"):
+                try:
+                    api_client.unblock_ip(token, ip)
+                    st.rerun()
+                except ApiError as exc:
+                    st.error(exc.detail)
+
+    with st.form("block-ip"):
+        manual_ip = st.text_input("Block an IP")
+        if st.form_submit_button("Block"):
             try:
-                api_client.unblock_ip(token, ip)
+                api_client.block_ip(token, manual_ip.strip())
                 st.rerun()
             except ApiError as exc:
                 st.error(exc.detail)
-
-with st.form("block-ip"):
-    manual_ip = st.text_input("Block an IP")
-    if st.form_submit_button("Block"):
-        try:
-            api_client.block_ip(token, manual_ip.strip())
-            st.rerun()
-        except ApiError as exc:
-            st.error(exc.detail)
+else:
+    st.subheader("Blocked IPs")
+    st.info("Admin access required to view or manage blocked IPs.")
 
 st.divider()
 st.subheader("Login history")

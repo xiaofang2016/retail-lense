@@ -30,6 +30,11 @@ from services.two_factor import TwoFactorService
 router = APIRouter()
 
 
+def require_admin(current_user: UserRecord) -> None:
+    if not current_user.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+
 def _login_payload(result: AuthResult) -> dict:
     if result.access_token:
         return TokenResponse.respond(result.access_token)
@@ -144,12 +149,14 @@ def login_history(
 
 @router.get("/blocked-ips", response_model=BlockedIpList)
 def list_blocked_ips(current_user: UserRecord = Depends(get_current_user)) -> BlockedIpList:
+    require_admin(current_user)
     ips = AuthService().list_blocked_ips(current_user)
     return BlockedIpList(items=[BlockedIpOut(ip=ip) for ip in ips])
 
 
 @router.post("/blocked-ips", response_model=BlockedIpList)
 def block_ip(body: BlockIpIn, current_user: UserRecord = Depends(get_current_user)) -> BlockedIpList:
+    require_admin(current_user)
     service = AuthService()
     try:
         user = service.block_ip(current_user, body.ip)
@@ -160,6 +167,7 @@ def block_ip(body: BlockIpIn, current_user: UserRecord = Depends(get_current_use
 
 @router.delete("/blocked-ips", response_model=BlockedIpList)
 def unblock_ip(body: BlockIpIn, current_user: UserRecord = Depends(get_current_user)) -> BlockedIpList:
+    require_admin(current_user)
     service = AuthService()
     try:
         user = service.unblock_ip(current_user, body.ip)

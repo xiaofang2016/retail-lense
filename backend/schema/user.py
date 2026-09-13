@@ -21,6 +21,7 @@ class UserOut(BaseModel):
     created_at: datetime
     phone_hint: str = ""
     two_factor_enabled: bool = False
+    is_admin: bool = False
 
     @classmethod
     def from_record(cls, user: "UserRecord") -> "UserOut":
@@ -33,6 +34,7 @@ class UserOut(BaseModel):
             created_at=user.created_at,
             phone_hint=mask_phone(user.phone) if enabled else "",
             two_factor_enabled=enabled,
+            is_admin=bool(user.is_admin),
         )
 
 

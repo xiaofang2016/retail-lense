@@ -102,9 +102,9 @@ class MemoryUserStore:
         return event
 
     def list_login_events(self, user_id: str, limit: int = 50) -> list[LoginEvent]:
-        items = [event for event in self._events if event.user_id == user_id]
-        items.sort(key=lambda event: event.created_at, reverse=True)
-        return items[:limit]
+        items = [(index, event) for index, event in enumerate(self._events) if event.user_id == user_id]
+        items.sort(key=lambda pair: (pair[1].created_at, pair[0]), reverse=True)
+        return [event for _, event in items[:limit]]
 
     def count_failed_by_ip(self, ip: str, since: datetime) -> int:
         count = 0
@@ -176,6 +176,7 @@ class DynamoUserStore:
             phone=str(item.get("phone") or ""),
             phone_verified=bool(item.get("phone_verified")),
             two_factor_enabled=bool(item.get("two_factor_enabled")),
+            is_admin=bool(item.get("is_admin")),
         )
 
     def get_by_id(self, user_id: str) -> UserRecord | None:
@@ -216,6 +217,7 @@ class DynamoUserStore:
             "phone": user.phone or "",
             "phone_verified": bool(user.phone_verified),
             "two_factor_enabled": bool(user.two_factor_enabled),
+            "is_admin": bool(user.is_admin),
         }
         if user.locked_at:
             item["locked_at"] = user.locked_at.isoformat()
@@ -230,16 +232,17 @@ class DynamoUserStore:
         return user
 
     def add_login_event(self, event: LoginEvent) -> LoginEvent:
+        created_at = event.created_at.isoformat(timespec="microseconds")
         self._history.put_item(
             Item={
                 "user_id": event.user_id,
-                "sk": f"{event.created_at.isoformat()}#{event.event_id}",
+                "sk": f"{created_at}#{event.event_id}",
                 "event_id": event.event_id,
                 "username": event.username,
                 "ip": event.ip,
                 "success": event.success,
                 "user_agent": event.user_agent,
-                "created_at": event.created_at.isoformat(),
+                "created_at": created_at,
             }
         )
         return event
