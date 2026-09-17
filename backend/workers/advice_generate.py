@@ -1,12 +1,14 @@
-"""EC2 worker: call OpenAI with pipeline metrics; store advice next to the report."""
+"""Call OpenAI with pipeline metrics; the advice text is stored alongside the report.
+
+Called from workers/clustering.py as a step in the single consolidated worker, not run standalone.
+"""
 
 from __future__ import annotations
 
+from typing import Any
 
-def run() -> None:
-    # TODO: load insights, retrieve OpenAI key from Secrets Manager, put advice on Analyses item / S3
-    raise NotImplementedError
+from services.openai_client import generate_advice
 
 
-if __name__ == "__main__":
-    run()
+def generate(insights: dict[str, Any]) -> str:
+    return generate_advice(insights)

@@ -38,7 +38,13 @@ class PasswordResetItem(TypedDict):
 class AnalysisItem(TypedDict):
     analysis_id: str
     user_id: str
+    # pending -> validation -> processing -> done, or failed at any stage.
     status: str
     k: int
     s3_upload_key: str
     s3_result_key: str
+    # Set only when status == "failed"; explains what went wrong (validation or processing).
+    error_message: str | None
+    # Set at creation; needed for the Analysis Library's date/filename search and sort UI.
+    created_at: str
+    original_filename: str

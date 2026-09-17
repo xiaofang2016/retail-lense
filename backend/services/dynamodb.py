@@ -1,4 +1,7 @@
-"""DynamoDB access. Tables: Users, LoginHistory, PasswordReset, Otps, Analyses. No SQL / RDS."""
+"""DynamoDB access. Tables: Users, LoginHistory, PasswordReset, Otps. No SQL / RDS.
+
+Analyses table access lives in services/analysis_store.py, not here.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +14,6 @@ USERS_TABLE = os.getenv("DDB_USERS_TABLE", "retaillen-users")
 LOGIN_HISTORY_TABLE = os.getenv("DDB_LOGIN_HISTORY_TABLE", "retaillen-login-history")
 PASSWORD_RESET_TABLE = os.getenv("DDB_PASSWORD_RESET_TABLE", "retaillen-password-reset")
 OTPS_TABLE = os.getenv("DDB_OTPS_TABLE", "retaillen-otps")
-ANALYSES_TABLE = os.getenv("DDB_ANALYSES_TABLE", "retaillen-analyses")
 
 
 def dynamodb_resource():
@@ -50,14 +52,3 @@ def put_user(item: dict[str, Any]) -> None:
 def put_otp(email: str, code: str, ttl: int) -> None:
     # TODO: PutItem Otps with TTL attribute
     _ = (email, code, ttl)
-
-
-def put_analysis(item: dict[str, Any]) -> None:
-    # TODO: PutItem Analyses
-    _ = item
-
-
-def get_analysis(analysis_id: str) -> dict[str, Any] | None:
-    # TODO: GetItem Analyses
-    _ = analysis_id
-    return None

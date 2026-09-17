@@ -106,6 +106,7 @@ if st.button("Sign out"):
     st.stop()
 
 st.divider()
+blocked: list[str] = []
 if user.get("is_admin"):
     st.subheader("Blocked IPs")
     st.caption("Blocked addresses cannot sign in to this account. Other accounts are unchanged.")
