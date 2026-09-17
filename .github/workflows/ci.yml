@@ -10,6 +10,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      # Dummy, never-validated credentials: boto3's presigned-URL signing (POST /analyses)
+      # needs *some* credentials present to compute a SigV4 signature, even though it never
+      # makes a network call. Locally this works silently via ~/.aws/credentials; CI has none.
+      AWS_ACCESS_KEY_ID: testing
+      AWS_SECRET_ACCESS_KEY: testing
+      AWS_SESSION_TOKEN: testing
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_REGION: us-east-1
+      S3_BUCKET: retail-lense-test
+
     steps:
       - uses: actions/checkout@v4
 
