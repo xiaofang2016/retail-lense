@@ -6,9 +6,19 @@ import pandas as pd
 import streamlit as st
 
 from components.style import setup
+from services import api_client, session
 
 
 setup("Analysis Library")
+
+# GET /analyses requires a JWT, so the page can't render anything real without a session.
+if not session.signed_in():
+    st.warning("Please sign in to view your analyses.")
+
+    if st.button("Go to Sign In", use_container_width=True):
+        st.switch_page("pages/1_Login.py")
+
+    st.stop()
 
 
 # ---------------------------------------------------------
@@ -24,43 +34,39 @@ st.write(
 
 
 # ---------------------------------------------------------
-# Mock analysis data
+# Fetch analyses from the backend (GET /analyses, queries UserIndex by user_id)
 # ---------------------------------------------------------
+
+_STATUS_DISPLAY = {
+    "done": "Completed",
+    "failed": "Failed",
+    "pending": "Processing",
+    "validation": "Processing",
+    "processing": "Processing",
+}
+
+# Session-local only: there is no DELETE /analyses endpoint, so "delete" just hides an
+# id from this browser session. It reappears if the app is restarted or state is cleared.
+st.session_state.setdefault("hidden_analysis_ids", set())
+
+try:
+    fetched = api_client.list_analyses(session.token())["items"]
+except api_client.ApiError as exc:
+    st.error(f"Could not load your analyses: {exc.detail}")
+    fetched = []
 
 analyses = [
     {
-        "id": "analysis_001",
-        "report": "transactions_august.csv",
-        "submitted": datetime(2026, 8, 26, 10, 30),
-        "status": "Completed",
-    },
-    {
-        "id": "analysis_002",
-        "report": "customer_data.xlsx",
-        "submitted": datetime(2026, 8, 26, 10, 30),
-        "status": "Processing",
-    },
-    {
-        "id": "analysis_003",
-        "report": "retail_july.csv",
-        "submitted": datetime(2026, 8, 26, 10, 30),
-        "status": "Completed",
-    },
-    {
-        "id": "analysis_004",
-        "report": "test_transactions.csv",
-        "submitted": datetime(2026, 8, 26, 10, 30),
-        "status": "Failed",
-    },
+        "id": item["analysis_id"],
+        "report": item["original_filename"],
+        "submitted": datetime.fromisoformat(item["created_at"]),
+        "status": _STATUS_DISPLAY.get(item["status"], "Processing"),
+    }
+    for item in fetched
+    if item["analysis_id"] not in st.session_state["hidden_analysis_ids"]
 ]
 
-
-# ---------------------------------------------------------
-# Store analyses in session state
-# ---------------------------------------------------------
-
-if "analyses" not in st.session_state:
-    st.session_state["analyses"] = analyses
+st.session_state["analyses"] = analyses
 
 
 # ---------------------------------------------------------
@@ -98,6 +104,10 @@ if delete_id:
                 type="primary",
                 use_container_width=True,
             ):
+
+                # Persist the hide across the rerun that follows, since "analyses" is
+                # refetched from the backend on every run and would otherwise bring it back.
+                st.session_state["hidden_analysis_ids"].add(delete_id)
 
                 st.session_state["analyses"] = [
                     item

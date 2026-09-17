@@ -1,6 +1,7 @@
 """Sign in and forgot-password. Uses POST /auth/signin and /users/forgot-password."""
 
 import time
+from venv import logger
 
 import streamlit as st
 
@@ -59,12 +60,15 @@ with st.form("signin"):
 if submitted:
     try:
         data = api_client.signin(username.strip(), password, remember_me=remember)
+        logger.info(f"Sign in response data: {data}")
         if data.get("status") == "otp_required":
             st.session_state["otp_username"] = username.strip()
             st.session_state["otp_hint"] = data.get("phone_hint") or ""
             st.session_state["otp_remember"] = remember
             st.rerun()
+        logger.info("OTP not required, proceeding with normal sign in.")
         session.save_login(data["access_token"], remember_me=remember)
+        logger.info("Sign in successful.")
         # Let the cookie component finish writing before another Streamlit run.
         st.success("Signed in. redirecting to the Account page...")
         st.switch_page("pages/4_Account.py")

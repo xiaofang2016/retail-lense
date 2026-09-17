@@ -65,6 +65,15 @@ class Settings:
     otp_ttl_seconds: int
     otp_resend_seconds: int
     otp_max_attempts: int
+    # Analyses table + S3/SQS/SNS/OpenAI config for the upload -> worker -> Lambda pipeline.
+    ddb_analyses_table: str
+    s3_prefix_uploads: str
+    s3_prefix_results: str
+    sqs_analysis_queue_url: str
+    sns_analysis_complete_topic_arn: str
+    openai_secret_name: str
+    openai_model: str
+    analysis_k: int
     base_url: str
     password_reset_path: str
     password_reset_token_hours: int
@@ -109,7 +118,7 @@ def _load_jwt_secret(app_env: str, secret_name: str) -> str:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     settings = Settings()
-    settings.app_env = os.getenv("APP_ENV", "local")
+    settings.app_env = os.getenv("APP_ENV", "aws")
     settings.allow_signup = _bool("ALLOW_SIGNUP", True)
     settings.jwt_secret_name = os.getenv("JWT_SECRET_NAME", "").strip()
     settings.jwt_secret = _load_jwt_secret(settings.app_env, settings.jwt_secret_name)
@@ -141,6 +150,21 @@ def get_settings() -> Settings:
     settings.otp_ttl_seconds = max(60, _int("OTP_TTL_SECONDS", 300))
     settings.otp_resend_seconds = max(15, _int("OTP_RESEND_SECONDS", 60))
     settings.otp_max_attempts = max(1, _int("OTP_MAX_ATTEMPTS", 5))
+    # Analyses pipeline: table name, S3 prefixes, SQS queue, SNS topic, OpenAI secret/model, fixed k.
+    settings.ddb_analyses_table = os.getenv("DDB_ANALYSES_TABLE", "retaillen-analyses")
+    uploads_prefix = os.getenv("S3_PREFIX_UPLOADS", "uploads/").strip() or "uploads/"
+    if not uploads_prefix.endswith("/"):
+        uploads_prefix = f"{uploads_prefix}/"
+    settings.s3_prefix_uploads = uploads_prefix
+    results_prefix = os.getenv("S3_PREFIX_RESULTS", "results/").strip() or "results/"
+    if not results_prefix.endswith("/"):
+        results_prefix = f"{results_prefix}/"
+    settings.s3_prefix_results = results_prefix
+    settings.sqs_analysis_queue_url = os.getenv("SQS_ANALYSIS_QUEUE_URL", "").strip()
+    settings.sns_analysis_complete_topic_arn = os.getenv("SNS_ANALYSIS_COMPLETE_TOPIC_ARN", "").strip()
+    settings.openai_secret_name = os.getenv("OPENAI_SECRET_NAME", "retaillen/openai").strip()
+    settings.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+    settings.analysis_k = _int("ANALYSIS_K", 4)
     settings.base_url = os.getenv("BASE_URL", "http://localhost:8501").rstrip("/")
     settings.password_reset_path = os.getenv("PASSWORD_RESET_PATH", "/Reset_Password")
     settings.password_reset_token_hours = max(1, _int("PASSWORD_RESET_TOKEN_HOURS", 48))

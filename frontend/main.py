@@ -48,11 +48,11 @@ pages = [
         icon="📄",
         visibility="hidden",
     ),
-    st.Page(
-    "pages/10_Data_Privacy.py",
-    title="Data Privacy Policy",
-    icon="🔒",
-    ),
+    # st.Page(
+    # "pages/10_Data_Privacy.py",
+    # title="Data Privacy Policy",
+    # icon="🔒",
+    # ),
     st.Page(
         "pages/7_About.py",
         title="About",
