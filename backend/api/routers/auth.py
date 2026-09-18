@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, 
 from api.dependencies import get_current_user
 from core.exceptions import IpBlockedForUser, IpRestricted, RegistrationConflict, TwoFactorError, UserLockedOut
 from core.security.request_ip import client_ip
-from core.security.tokens import create_access_token
+from core.security.tokens import create_access_token, create_refresh_token, decode_refresh_token
 from core.settings import get_settings
 from schema.auth import (
     BlockedIpList,
@@ -35,15 +35,36 @@ def require_admin(current_user: UserRecord) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
 
-def _login_payload(result: AuthResult) -> dict:
+
+def _refresh_cookie_settings() -> dict:
+    secure = get_settings().app_env not in {"local", "test"}
+    return {
+        "httponly": True,
+        "secure": secure,
+        "samesite": "lax",
+        "max_age": 60 * 60 * 24 * 7,
+        "path": "/",
+    }
+
+
+def _login_payload(result: AuthResult, response: Response | None = None) -> dict:
     if result.access_token:
-        return TokenResponse.respond(result.access_token)
+        if response and result.refresh_token:
+            response.set_cookie(key="retaillen.refresh_token", value=result.refresh_token, **_refresh_cookie_settings())
+        return TokenResponse.respond(result.access_token, result.refresh_token)
     return {"status": "otp_required", "phone_hint": result.phone_hint}
 
 
-def _login_or_raise(username: str, password: str, remember_me: bool, ip: str, user_agent: str) -> dict:
+def _login_or_raise(
+    username: str,
+    password: str,
+    remember_me: bool,
+    ip: str,
+    user_agent: str,
+    response: Response | None = None,
+) -> dict:
     try:
-        return _login_payload(AuthService().authenticate(username, password, remember_me, ip, user_agent))
+        return _login_payload(AuthService().authenticate(username, password, remember_me, ip, user_agent), response)
     except UserLockedOut as exc:
         raise HTTPException(status.HTTP_423_LOCKED, detail="User is locked out") from exc
     except IpBlockedForUser as exc:
@@ -69,36 +90,39 @@ def register_new_user(data: CreateUserRegistration) -> UserOut:
 @router.post("/token")
 def get_token(
     request: Request,
+    response: Response,
     username: Annotated[str, Form()] = "",
     password: Annotated[str, Form()] = "",
     remember_me: Annotated[bool, Form()] = False,
 ):
     ip = client_ip(request)
     user_agent = request.headers.get("user-agent") or ""
-    return _login_or_raise(username, password, remember_me, ip, user_agent)
+    return _login_or_raise(username, password, remember_me, ip, user_agent, response)
 
 
 @router.post("/signin")
-def signin_json(request: Request, data: CredentialsRequest):
+def signin_json(request: Request, response: Response, data: CredentialsRequest):
     """JSON alias of POST /auth/token for non-form clients."""
     ip = client_ip(request)
     user_agent = request.headers.get("user-agent") or ""
-    return _login_or_raise(data.username, data.password, data.remember_me, ip, user_agent)
+    return _login_or_raise(data.username, data.password, data.remember_me, ip, user_agent, response)
 
 
 @router.post("/verify-otp")
-def verify_otp(request: Request, data: VerifyOtpIn):
+def verify_otp(request: Request, response: Response, data: VerifyOtpIn):
     ip = client_ip(request)
     user_agent = request.headers.get("user-agent") or ""
     try:
-        token = AuthService().verify_login_otp(
+        result = AuthService().verify_login_otp(
             data.username, data.code, data.remember_me, ip, user_agent
         )
     except IpRestricted as exc:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many failed logins from this IP") from exc
     except TwoFactorError as exc:
         raise HTTPException(exc.status_code, detail=exc.detail) from exc
-    return TokenResponse.respond(token)
+    if result.access_token and result.refresh_token:
+        response.set_cookie(key="retaillen.refresh_token", value=result.refresh_token, **_refresh_cookie_settings())
+    return TokenResponse.respond(result.access_token, result.refresh_token)
 
 
 @router.post("/2fa/phone")
@@ -128,13 +152,27 @@ def disable_two_factor(current_user: UserRecord = Depends(get_current_user)) -> 
 
 
 @router.post("/refresh")
-def refresh_token(current_user: UserRecord = Depends(get_current_user)):
-    return TokenResponse.respond(create_access_token(current_user.user_id))
+def refresh_token(request: Request, response: Response, data: dict | None = None):
+    payload = data or {}
+    refresh_token_value = payload.get("refresh_token") or request.cookies.get("retaillen.refresh_token")
+    if not refresh_token_value:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Refresh token is required")
+    try:
+        user_id = decode_refresh_token(refresh_token_value).get("sub")
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
+    if not user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    new_access_token = create_access_token(user_id)
+    new_refresh_token = create_refresh_token(user_id)
+    response.set_cookie(key="retaillen.refresh_token", value=new_refresh_token, **_refresh_cookie_settings())
+    return TokenResponse.respond(new_access_token, new_refresh_token)
 
 
 @router.post("/logout")
 def logout(response: Response) -> dict[str, str]:
     response.delete_cookie("retaillen.access_token")
+    response.delete_cookie("retaillen.refresh_token")
     return {"message": "logged out"}
 
 

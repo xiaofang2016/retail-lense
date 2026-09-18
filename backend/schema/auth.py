@@ -34,11 +34,13 @@ class CredentialsRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
 
     @classmethod
-    def respond(cls, token: str) -> dict:
-        return cls(access_token=token).model_dump()
+    def respond(cls, access_token: str, refresh_token: str | None = None) -> dict:
+        payload = cls(access_token=access_token, refresh_token=refresh_token)
+        return payload.model_dump(exclude_none=True)
 
 
 class LoginHistoryOut(BaseModel):

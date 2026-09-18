@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Protocol
+import json
 
 from core.settings import get_settings
 
@@ -54,18 +55,9 @@ class AwsSnsSender:
 
 
 def _sns_client():
-    import boto3
+    from core.aws import client as aws_client
 
-    settings = get_settings()
-    kwargs: dict[str, str] = {"region_name": settings.aws_region}
-    if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
-        return boto3.client("sns", **kwargs)
-    if settings.aws_profile:
-        return boto3.Session(
-            profile_name=settings.aws_profile,
-            region_name=settings.aws_region,
-        ).client("sns")
-    return boto3.client("sns", **kwargs)
+    return aws_client("sns")
 
 
 def publish_otp(phone: str, code: str) -> None:
@@ -73,8 +65,17 @@ def publish_otp(phone: str, code: str) -> None:
 
 
 def publish_analysis_complete(user_id: str, analysis_id: str) -> None:
-    # TODO: SNS publish to analysis-complete topic
-    _ = (user_id, analysis_id)
+    """Not called by the real completion Lambda (backend/lambda/analysis_processor/handler.py
+    is deliberately boto3-only and self-contained, with its own inline SNS publish) -- kept
+    here as a reusable equivalent for anywhere else in the backend/worker that needs it."""
+    settings = get_settings()
+    if not settings.sns_analysis_complete_topic_arn:
+        return
+    _sns_client().publish(
+        TopicArn=settings.sns_analysis_complete_topic_arn,
+        Message=json.dumps({"user_id": user_id, "analysis_id": analysis_id}),
+        Subject="Analysis complete",
+    )
 
 
 @lru_cache(maxsize=1)

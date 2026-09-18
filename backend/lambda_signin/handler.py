@@ -119,7 +119,7 @@ def _signin(event: dict[str, Any]) -> dict[str, Any]:
 
     if not result.access_token:
         return _response(200, {"status": "otp_required", "phone_hint": result.phone_hint})
-    return _response(200, TokenResponse.respond(result.access_token))
+    return _response(200, TokenResponse.respond(result.access_token, result.refresh_token))
 
 
 def _register(event: dict[str, Any]) -> dict[str, Any]:

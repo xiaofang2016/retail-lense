@@ -144,6 +144,10 @@ def verify_otp(username: str, code: str, remember_me: bool = False) -> dict[str,
     )
 
 
+def refresh_access_token(refresh_token: str) -> dict[str, Any]:
+    return _request("POST", "/auth/refresh", json={"refresh_token": refresh_token})
+
+
 def start_phone_2fa(token: str, phone: str) -> dict[str, Any]:
     return _request("POST", "/auth/2fa/phone", token=token, json={"phone": phone})
 
@@ -191,3 +195,38 @@ def block_ip(token: str, ip: str) -> dict[str, Any]:
 
 def unblock_ip(token: str, ip: str) -> dict[str, Any]:
     return _request("DELETE", "/auth/blocked-ips", token=token, json={"ip": ip})
+
+
+def create_analysis(token: str, file_extension: str, file_name: str, file_size_bytes: int) -> dict[str, Any]:
+    return _request(
+        "POST",
+        "/analyses",
+        token=token,
+        json={
+            "file_extension": file_extension,
+            "file_name": file_name,
+            "file_size_bytes": file_size_bytes,
+        },
+    )
+
+
+def upload_bytes_to_presigned_url(upload_url: str, body: bytes, content_type: str) -> None:
+    """PUT straight to S3 using the presigned URL -- bypasses the backend entirely."""
+    response = httpx.put(upload_url, content=body, headers={"Content-Type": content_type}, timeout=60.0)
+    if response.is_error:
+        raise ApiError(response.status_code, response.text or f"HTTP {response.status_code}")
+
+
+def get_analysis_status(token: str, analysis_id: str) -> dict[str, Any]:
+    return _request("GET", f"/analyses/{analysis_id}/status", token=token)
+
+
+def list_analyses(token: str) -> dict[str, Any]:
+    return _request("GET", "/analyses", token=token)
+
+
+def get_analysis_report(token: str, analysis_id: str) -> dict[str, Any]:
+    return _request("GET", f"/analyses/{analysis_id}/report", token=token)
+
+def delete_analysis(token: str, analysis_id: str) -> None:
+    _request("DELETE", f"/analyses/{analysis_id}", token=token)

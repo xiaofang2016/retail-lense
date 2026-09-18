@@ -7,7 +7,7 @@ from uuid import uuid4
 from core.exceptions import IpBlockedForUser, IpRestricted, TwoFactorError, UserLockedOut
 from core.security.hasher import FAKE_PASSWORD_HASH, get_hasher
 from core.security.ip import normalize_ip
-from core.security.tokens import create_access_token
+from core.security.tokens import create_access_token, create_refresh_token
 from core.settings import get_settings
 from schema.user import LoginEvent, UserOut, UserRecord
 from services.two_factor import TwoFactorService
@@ -17,6 +17,7 @@ from services.user_store import UserStore, get_user_store
 @dataclass
 class AuthResult:
     access_token: str | None = None
+    refresh_token: str | None = None
     phone_hint: str = ""
 
 
@@ -151,18 +152,24 @@ class AuthService:
             return AuthResult(phone_hint=hint)
 
         self._record_event(user_id=user.user_id, username=username, ip=ip, success=True, user_agent=user_agent)
-        return AuthResult(access_token=create_access_token(user.user_id, remember_me=remember_me))
+        return AuthResult(
+            access_token=create_access_token(user.user_id, remember_me=remember_me),
+            refresh_token=create_refresh_token(user.user_id, remember_me=remember_me),
+        )
 
     def verify_login_otp(
         self, username: str, code: str, remember_me: bool, ip: str, user_agent: str = ""
-    ) -> str:
+    ) -> AuthResult:
         self._enforce_ip_limit(ip)
         user = self.try_get_user(username)
         if not user or not (user.two_factor_enabled and user.phone_verified and user.phone):
             raise TwoFactorError("Invalid or expired code", 400)
         TwoFactorService(self.store).consume_login(user, code)
         self._record_event(user_id=user.user_id, username=username, ip=ip, success=True, user_agent=user_agent)
-        return create_access_token(user.user_id, remember_me=remember_me)
+        return AuthResult(
+            access_token=create_access_token(user.user_id, remember_me=remember_me),
+            refresh_token=create_refresh_token(user.user_id, remember_me=remember_me),
+        )
 
     def list_history(self, user_id: str, limit: int = 50) -> list[LoginEvent]:
         return self.store.list_login_events(user_id, limit=limit)

@@ -48,3 +48,6 @@ backend/lambda/*/response.json
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Packaged Lambda zip
+infra/dist/

@@ -15,15 +15,9 @@ _LOCAL_SAMPLE_CANDIDATES = (
 
 
 def s3_client():
-    import boto3
+    from core.aws import client as aws_client
 
-    settings = get_settings()
-    if settings.aws_profile:
-        return boto3.Session(
-            profile_name=settings.aws_profile,
-            region_name=settings.aws_region,
-        ).client("s3")
-    return boto3.client("s3", region_name=settings.aws_region)
+    return aws_client("s3")
 
 
 def get_object_bytes(key: str) -> bytes:
@@ -64,8 +58,53 @@ def put_upload(user_id: str, key: str, body: bytes, content_type: str) -> str:
     return f"s3://{settings.s3_bucket}/uploads/{user_id}/{key}"
 
 
-def put_result(user_id: str, analysis_id: str, body: bytes) -> str:
-    # TODO: put_object results/{user_id}/{analysis_id}
+def upload_key(user_id: str, analysis_id: str, file_extension: str) -> str:
+    """uploads/{user_id}/{analysis_id}/raw.(csv|xlsx) -- the fixed key the client PUTs to."""
     settings = get_settings()
-    _ = (user_id, analysis_id, body)
-    return f"s3://{settings.s3_bucket}/results/{user_id}/{analysis_id}"
+    return f"{settings.s3_prefix_uploads}{user_id}/{analysis_id}/raw.{file_extension}"
+
+
+def presign_put_url(key: str, content_type: str, expires_in: int = 900) -> str:
+    """Presigned S3 PUT URL scoped to one key, used by POST /analyses."""
+    settings = get_settings()
+    return s3_client().generate_presigned_url(
+        "put_object",
+        Params={"Bucket": settings.s3_bucket, "Key": key, "ContentType": content_type},
+        ExpiresIn=expires_in,
+    )
+
+
+def put_result(user_id: str, analysis_id: str, filename: str, body: bytes) -> str:
+    """Write results/{user_id}/{analysis_id}/{filename} (report.json / metadata.json)."""
+    settings = get_settings()
+    key = f"{settings.s3_prefix_results}{user_id}/{analysis_id}/{filename}"
+    s3_client().put_object(
+        Bucket=settings.s3_bucket,
+        Key=key,
+        Body=body,
+        ContentType="application/json",
+    )
+    return key
+
+
+def get_object_json(key: str) -> dict:
+    """Read and parse a JSON object (report.json / metadata.json)."""
+    import json
+
+    return json.loads(get_object_bytes(key))
+
+def delete_object(key: str) -> None:
+    settings = get_settings()
+    s3_client().delete_object(Bucket=settings.s3_bucket, Key=key)
+
+
+def delete_prefix(prefix: str) -> None:
+    """Delete every object under a prefix, e.g. results/{user_id}/{analysis_id}/ --
+    there can be more than one file there (report.json, metadata.json)."""
+    settings = get_settings()
+    client = s3_client()
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=settings.s3_bucket, Prefix=prefix):
+        objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+        if objects:
+            client.delete_objects(Bucket=settings.s3_bucket, Delete={"Objects": objects})

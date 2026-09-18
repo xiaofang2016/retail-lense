@@ -12,7 +12,7 @@ data/samples/ Tiny schema samples (not the full UCI dataset)
 docs/         Architecture notes
 ```
 
-Compute runs on **EC2 only** (no Lambda). Persistence is **DynamoDB + S3** (no RDS / SQL).
+Compute runs on **EC2**, plus an **auth Lambda** for sign-in and sign-up. Persistence is **DynamoDB + S3** (no RDS / SQL). Local auth still uses FastAPI when `AUTH_API_URL` is empty.
 
 ## Python
 
@@ -151,8 +151,18 @@ Auth API examples:
 curl -s http://localhost:8000/auth/register -H 'Content-Type: application/json' \
   -d '{"email":"a@example.com","username":"alice","full_name":"Alice","password":"password1","password_confirm":"password1"}'
 
-# login (OAuth2 form: POST /auth/token)
+# login (OAuth2 form: POST /auth/token). If SMS 2FA is on, this returns
+# {"status":"otp_required","phone_hint":"..."} instead of access_token.
 curl -s http://localhost:8000/auth/token -d 'username=alice&password=password1'
+
+# optional SMS 2FA (bind after login; not required at sign-up)
+curl -s http://localhost:8000/auth/2fa/phone -H "Authorization: Bearer TOKEN" \
+  -H 'Content-Type: application/json' -d '{"phone":"+64211234567"}'
+curl -s http://localhost:8000/auth/2fa/confirm -H "Authorization: Bearer TOKEN" \
+  -H 'Content-Type: application/json' -d '{"code":"123456"}'
+curl -s http://localhost:8000/auth/verify-otp -H 'Content-Type: application/json' \
+  -d '{"username":"alice","code":"123456"}'
+curl -s http://localhost:8000/auth/2fa/disable -H "Authorization: Bearer TOKEN"
 
 # login history (Bearer token)
 curl -s http://localhost:8000/auth/login-history -H "Authorization: Bearer TOKEN"
@@ -245,11 +255,22 @@ If the machine has **several profiles** and `[default]` is the wrong IAM user, s
 AWS_PROFILE=your-profile-name
 ```
 
-List names with `aws configure list-profiles`. Leave `AWS_PROFILE` empty when `[default]` is already correct, or on EC2 when you use an instance role.
+List names with `aws configure list-profiles`. On a laptop, omit `AWS_PROFILE` when `[default]` is already the course account. On backend EC2 omit it entirely (do not write `AWS_PROFILE=`) so containers use instance role `retaillen-backend-runtime`. A blank value or a named profile that is not in the container is stripped and boto3 falls through to that role.
 
 Do not put access keys in `.env`. A process-level `AWS_PROFILE=...` overrides `.env` (`setdefault`). Restart the API after changing it.
 
 One-off for the table script: `AWS_PROFILE=your-profile AWS_REGION=us-east-1 ./infra/scripts/create_dynamodb_tables.sh --yes`
+
+### Sign-in Lambda
+
+No CloudFormation and no API Gateway. Deploy with the AWS CLI (or the console steps in `infra/scripts/deploy_signin_lambda.sh`). Farhan should attach `infra/iam/signin-lambda-deployer.json` if the current profile cannot create the function.
+
+```bash
+export AWS_PROFILE=mike-assume-infra AWS_REGION=us-east-1
+./infra/scripts/deploy_signin_lambda.sh
+```
+
+Set `JWT_SECRET_NAME=retaillen/jwt` on Lambda and backend EC2. Their execution roles need `secretsmanager:GetSecretValue` for that secret; do not put the secret value in an AWS environment variable. Put the Function URL base in `.env` as `AUTH_API_URL` and restart Streamlit. The same function handles `POST /auth/signin` and `POST /auth/register`. Leave it empty locally so auth stays on FastAPI. The function uses role `retaillen-signin-lambda`, not `AWS_PROFILE`. `GET /auth/login-history` stays on FastAPI.
 
 ## Production (EC2, Amazon Linux)
 
@@ -275,8 +296,10 @@ backend/.venv/bin/pip install -r backend/requirements.txt
 python3.12 -m venv frontend/.venv
 frontend/.venv/bin/pip install -r frontend/requirements.txt
 
-# Repo-root .env stays on the box only (APP_ENV=aws, empty DDB_ENDPOINT, AWS_PROFILE if needed)
-# edit .env: BASE_URL, SMTP, AWS_PROFILE, JWT_SECRET, ...
+# Repo-root .env stays on the box only (APP_ENV=aws, empty DDB_ENDPOINT).
+# Backend EC2 uses instance role retaillen-backend-runtime (no AWS_PROFILE).
+# Frontend EC2: no instance role and no AWS keys.
+# edit .env: BASE_URL, SMTP, JWT_SECRET_NAME, AUTH_API_URL, ...
 
 sudo cp infra/systemd/retaillen-api.service infra/systemd/retaillen-ui.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -291,17 +314,25 @@ echo 'mike ALL=(root) NOPASSWD: /bin/systemctl restart retaillen-api, /bin/syste
 sudo chmod 440 /etc/sudoers.d/retaillen
 ```
 
-Allow GitHub Actions to SSH in: security group port 22 from GitHub-hosted runner IPs (or a fixed jump host). Put the matching public key in `/home/mike/.ssh/authorized_keys`.
+Allow GitHub Actions to reach the instances through the EC2 Instance Connect Endpoint (no public port 22). Attach `infra/iam/github-eice.json` to IAM user `github-eice` (the keys in `DEPLOY_AWS_*`).
 
 ### GitHub Actions secrets
 
 | Secret | Example |
 | --- | --- |
-| `DEPLOY_HOST` | EC2 public DNS or EIP |
+| `DEPLOY_HOST_BACKEND_US_1D` | Backend instance id in `us-east-1d` |
+| `DEPLOY_HOST_FRONTEND_US_1A` | Frontend instance id in `us-east-1a` |
+| `DEPLOY_HOST_FRONTEND_US_1C` | Frontend instance id in `us-east-1c` |
+| `DEPLOY_EICE_ENDPOINT_ID` | One EICE id for backend and both frontend instances, e.g. `eice-05b0600db42072e83` |
 | `DEPLOY_USER` | `mike` |
-| `DEPLOY_SSH_KEY` | private key that logs in as `mike` |
+| `DEPLOY_AWS_ACCESS_KEY_ID` | IAM access key that can use Instance Connect Endpoint |
+| `DEPLOY_AWS_SECRET_ACCESS_KEY` | Matching secret key |
 
-A merge into **`dev`** (or a direct push to `dev`) runs tests, then SSH-runs `infra/scripts/deploy_ec2.sh` (`git reset --hard origin/dev`, pip install, restart API/UI, `GET /health`). Manual: Actions → CI/CD → Run workflow (still deploys `dev` to the test box). Production/`master` is not wired yet.
+A merge into **`dev`** (or a direct push to `dev`) runs tests, then deploys only the stack that changed: `backend/**` → backend EC2 in `US_1D`; `frontend/**` → **both** frontend instances (`US_1A` and `US_1C`) in parallel (each box `git fetch` + `git reset --hard origin/dev` + restart Streamlit). A `docker-compose.yml` change deploys backend and both frontends. Manual: Actions → CI/CD → Run workflow (deploys all). Production/`master` is not wired yet.
+
+Backend and both frontend instances share `DEPLOY_EICE_ENDPOINT_ID`.
+
+On a frontend-only instance, set `BACKEND_URL` in `.env` to the backend host or ALB (not `http://backend:8000`). Do not attach an instance profile or put AWS keys on that host. Compose does not pass `AWS_*` into the Streamlit container. The frontend deploy uses `docker compose up --no-deps` so it does not start the API on that box.
 
 Port **80** needs root (or `setcap`). Better: Streamlit on 8501, ALB/nginx on 80.
 
@@ -313,6 +344,7 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 | Service | Role |
 | --- | --- |
 | EC2 | Streamlit + FastAPI + analysis workers |
+| Lambda | Sign-in and sign-up via one Function URL; PutItem users and login history |
 | ALB | HTTPS termination, traffic distribution |
 | S3 | Public UCI sample, per-user uploads, exported reports |
 | DynamoDB | Users, login history, password-reset tokens, OTPs, analysis metadata |
@@ -325,7 +357,7 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 
 **Assignment forbids:** RDBMS, SageMaker, Bedrock, WAF, ACM, Device Farm, Redshift, QuickSight, Shield, Inspector.
 
-**This repo does not use:** Lambda, SSM. Secrets live in Secrets Manager (or `JWT_SECRET` on a laptop).
+**This repo does not use:** SSM. Secrets live in Secrets Manager (`JWT_SECRET` is a local-only fallback). Sign-in and sign-up can run on Lambda; IAM user `mike` needs `infra/iam/signin-lambda-deployer.json` to deploy it.
 
 ## Analysis flow
 
@@ -337,6 +369,7 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 
 - Passwords hashed with bcrypt; JWT from Secrets Manager (or `JWT_SECRET` locally).
 - Failed logins increment a per-user counter; after 5 failures the account is locked for 24 hours (423).
+- Optional SMS 2FA: bind a phone on Account after login. Unbound accounts still sign in with password only.
 - Forgot-password emails a one-time link (48h). Unknown emails still return 200.
 - Every attempt is stored as login history with client IP (`X-Forwarded-For` when present).
 - An account owner can block an IP; later sign-ins from that IP to that account return 403.

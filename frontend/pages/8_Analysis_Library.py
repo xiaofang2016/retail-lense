@@ -6,9 +6,20 @@ import pandas as pd
 import streamlit as st
 
 from components.style import setup
+from services import api_client, session
 
 
 setup("Analysis Library")
+
+# GET /analyses requires a JWT, so the page can't render anything real without a session.
+if not session.signed_in():
+    st.warning("Please sign in to view your analyses.")
+    countdown_notice = st.empty()
+    for sec in range(3, 0, -1):
+        countdown_notice.info(f"Redirecting in {sec}...")
+        time.sleep(1)
+    st.switch_page("pages/4_Account.py")
+    st.stop()
 
 
 # ---------------------------------------------------------
@@ -24,43 +35,34 @@ st.write(
 
 
 # ---------------------------------------------------------
-# Mock analysis data
+# Fetch analyses from the backend (GET /analyses, queries UserIndex by user_id)
 # ---------------------------------------------------------
+
+_STATUS_DISPLAY = {
+    "done": "Completed",
+    "failed": "Failed",
+    "pending": "Processing",
+    "validation": "Processing",
+    "processing": "Processing",
+}
+
+try:
+    fetched = api_client.list_analyses(session.token())["items"]
+except api_client.ApiError as exc:
+    st.error(f"Could not load your analyses: {exc.detail}")
+    fetched = []
 
 analyses = [
     {
-        "id": "analysis_001",
-        "report": "transactions_august.csv",
-        "submitted": datetime(2026, 8, 26, 10, 30),
-        "status": "Completed",
-    },
-    {
-        "id": "analysis_002",
-        "report": "customer_data.xlsx",
-        "submitted": datetime(2026, 8, 26, 10, 30),
-        "status": "Processing",
-    },
-    {
-        "id": "analysis_003",
-        "report": "retail_july.csv",
-        "submitted": datetime(2026, 8, 26, 10, 30),
-        "status": "Completed",
-    },
-    {
-        "id": "analysis_004",
-        "report": "test_transactions.csv",
-        "submitted": datetime(2026, 8, 26, 10, 30),
-        "status": "Failed",
-    },
+        "id": item["analysis_id"],
+        "report": item["original_filename"],
+        "submitted": datetime.fromisoformat(item["created_at"]),
+        "status": _STATUS_DISPLAY.get(item["status"], "Processing"),
+    }
+    for item in fetched
 ]
 
-
-# ---------------------------------------------------------
-# Store analyses in session state
-# ---------------------------------------------------------
-
-if "analyses" not in st.session_state:
-    st.session_state["analyses"] = analyses
+st.session_state["analyses"] = analyses
 
 
 # ---------------------------------------------------------
@@ -98,22 +100,21 @@ if delete_id:
                 type="primary",
                 use_container_width=True,
             ):
+                try:
+                    api_client.delete_analysis(session.token(), delete_id)
 
-                st.session_state["analyses"] = [
-                    item
-                    for item in st.session_state["analyses"]
-                    if item["id"] != delete_id
-                ]
+                    st.session_state.pop(
+                        "delete_analysis_id"
+                    )
 
-                st.session_state.pop(
-                    "delete_analysis_id"
-                )
+                    st.success(
+                        "Analysis deleted successfully."
+                    )
 
-                st.success(
-                    "Analysis deleted successfully."
-                )
+                    st.rerun()
 
-                st.rerun()
+                except api_client.ApiError as exc:
+                    st.error(f"Could not delete this analysis: {exc.detail}")
 
         with confirm_col2:
 

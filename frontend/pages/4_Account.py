@@ -58,7 +58,7 @@ def render_phone_otp_countdown() -> None:
 
     if st.session_state.get("phone_otp_expires_at"):
         clear_phone_otp_state()
-        st.rerun()
+        st.warning("Code expired. You can send a new code.")
 
 if user.get("two_factor_enabled"):
     st.write(f"Enabled for {user.get('phone_hint') or 'your phone'}.")
@@ -101,11 +101,11 @@ else:
 
 if st.button("Sign out"):
     session.sign_out()
-    # Let the cookie component finish deleting the browser session cookie.
     st.success("Signed out.")
-    st.stop()
+    st.rerun()
 
 st.divider()
+blocked: list[str] = []
 if user.get("is_admin"):
     st.subheader("Blocked IPs")
     st.caption("Blocked addresses cannot sign in to this account. Other accounts are unchanged.")
@@ -161,7 +161,7 @@ else:
         cols[0].write(str(item.get("created_at") or ""))
         cols[1].write(ip)
         cols[2].write("ok" if item.get("success") else "fail")
-        if ip and ip not in seen and ip not in blocked:
+        if user.get("is_admin") and ip and ip not in seen and ip not in blocked:
             seen.add(ip)
             if cols[3].button("Block", key=f"block-hist-{ip}"):
                 try:
