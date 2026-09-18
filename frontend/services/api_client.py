@@ -223,3 +223,6 @@ def list_analyses(token: str) -> dict[str, Any]:
 
 def get_analysis_report(token: str, analysis_id: str) -> dict[str, Any]:
     return _request("GET", f"/analyses/{analysis_id}/report", token=token)
+
+def delete_analysis(token: str, analysis_id: str) -> None:
+    _request("DELETE", f"/analyses/{analysis_id}", token=token)
