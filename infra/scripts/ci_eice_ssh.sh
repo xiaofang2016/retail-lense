@@ -10,7 +10,7 @@
 #
 # Usage:
 #   INSTANCE_ID=i-... EICE_ENDPOINT_ID=eice-... OS_USER=mike \
-#     ./infra/scripts/ci_eice_ssh.sh 'bash /home/mike/retail-lense/infra/scripts/deploy_ec2_backend.sh'
+#     ./infra/scripts/ci_eice_ssh.sh 'bash /home/mike/retail-lense/retail-lense/infra/scripts/deploy_ec2_backend.sh'
 set -euo pipefail
 
 INSTANCE_ID="${INSTANCE_ID:?INSTANCE_ID is required}"

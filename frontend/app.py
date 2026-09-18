@@ -25,7 +25,7 @@ st.write(
     "segmentation and AI-powered recommendations."
 )
 
-st.write(" ")
+st.write("")
 
 col1, col2 = st.columns([1, 1])
 

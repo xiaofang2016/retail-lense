@@ -96,6 +96,7 @@ jobs:
       INSTANCE_ID: ${{ secrets.DEPLOY_HOST_BACKEND_US_1D }}
       EICE_ENDPOINT_ID: ${{ secrets.DEPLOY_EICE_ENDPOINT_ID }}
       OS_USER: ${{ secrets.DEPLOY_USER }}
+      APP_DIR: /home/mike/retail-lense/retail-lense
     steps:
       - name: Check deploy secrets
         run: |
@@ -125,7 +126,7 @@ jobs:
         run: |
           chmod +x infra/scripts/ci_eice_ssh.sh
           ./infra/scripts/ci_eice_ssh.sh \
-            'export APP_DIR=/home/mike/retail-lense DEPLOY_BRANCH=dev; bash /home/mike/retail-lense/infra/scripts/deploy_ec2_backend.sh'
+            "export APP_DIR=${APP_DIR} DEPLOY_BRANCH=dev; bash ${APP_DIR}/infra/scripts/deploy_ec2_backend.sh"
 
   deploy-frontend:
     name: Deploy frontend EC2 (${{ matrix.az }})

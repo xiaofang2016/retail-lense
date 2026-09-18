@@ -95,6 +95,7 @@ def test_delete_removes_analysis(client):
     assert listed.json()["items"] == []
 
 
+
 def test_delete_hides_other_users_analysis(client):
     token_a = _register_and_login(client, "deletera")
     token_b = _register_and_login(client, "deleterb")

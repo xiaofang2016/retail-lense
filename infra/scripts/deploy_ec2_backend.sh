@@ -2,7 +2,7 @@
 # Deploy FastAPI + analysis worker with Docker Compose on the backend EC2.
 set -euo pipefail
 
-ROOT="${APP_DIR:-/home/mike/retail-lense}"
+ROOT="${APP_DIR:-/home/mike/retail-lense/retail-lense}"
 BRANCH="${DEPLOY_BRANCH:-dev}"
 
 cd "${ROOT}"
