@@ -10,6 +10,7 @@ class AnalysisCreateIn(BaseModel):
     # Original client-side filename (e.g. "august_transactions.csv"), kept only for display
     # in the Analysis Library -- the S3 object itself is always stored as raw.<extension>.
     file_name: str
+    file_size_bytes: int
 
 
 class AnalysisCreateOut(BaseModel):

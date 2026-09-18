@@ -24,7 +24,7 @@ def test_create_status_and_list(client):
     token = _register_and_login(client, "analyst")
     headers = {"Authorization": f"Bearer {token}"}
 
-    created = client.post("/analyses", json={"file_extension": "csv", "file_name": "transactions.csv"}, headers=headers)
+    created = client.post("/analyses", json={"file_extension": "csv", "file_name": "transactions.csv", "file_size_bytes": 1024}, headers=headers)   
     assert created.status_code == 200, created.text
     body = created.json()
     assert body["analysis_id"]
@@ -47,7 +47,7 @@ def test_status_hides_other_users_analysis(client):
 
     created = client.post(
         "/analyses",
-        json={"file_extension": "csv", "file_name": "transactions.csv"},
+        json={"file_extension": "csv", "file_name": "transactions.csv", "file_size_bytes": 1024},
         headers={"Authorization": f"Bearer {token_a}"},
     )
     analysis_id = created.json()["analysis_id"]
@@ -63,7 +63,7 @@ def test_report_not_ready_until_done(client):
     token = _register_and_login(client, "reportuser")
     headers = {"Authorization": f"Bearer {token}"}
 
-    created = client.post("/analyses", json={"file_extension": "csv", "file_name": "transactions.csv"}, headers=headers)
+    created = client.post("/analyses", json={"file_extension": "csv", "file_name": "transactions.csv", "file_size_bytes": 1024}, headers=headers)
     analysis_id = created.json()["analysis_id"]
 
     response = client.get(f"/analyses/{analysis_id}/report", headers=headers)
@@ -82,7 +82,7 @@ def test_delete_removes_analysis(client):
     token = _register_and_login(client, "deleteuser")
     headers = {"Authorization": f"Bearer {token}"}
 
-    created = client.post("/analyses", json={"file_extension": "csv", "file_name": "transactions.csv"}, headers=headers)
+    created = client.post("/analyses", json={"file_extension": "csv", "file_name": "transactions.csv", "file_size_bytes": 1024}, headers=headers)
     analysis_id = created.json()["analysis_id"]
 
     response = client.delete(f"/analyses/{analysis_id}", headers=headers)
@@ -101,7 +101,7 @@ def test_delete_hides_other_users_analysis(client):
 
     created = client.post(
         "/analyses",
-        json={"file_extension": "csv", "file_name": "transactions.csv"},
+        json={"file_extension": "csv", "file_name": "transactions.csv", "file_size_bytes": 1024},
         headers={"Authorization": f"Bearer {token_a}"},
     )
     analysis_id = created.json()["analysis_id"]
@@ -118,3 +118,35 @@ def test_delete_hides_other_users_analysis(client):
         headers={"Authorization": f"Bearer {token_a}"},
     )
     assert status_response.status_code == 200
+
+def test_create_rejects_oversized_file(client):
+    token = _register_and_login(client, "biguploader")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    over_limit_bytes = 31 * 1024 * 1024  # default MAX_UPLOAD_MB is 30
+
+    response = client.post(
+        "/analyses",
+        json={"file_extension": "csv", "file_name": "huge.csv", "file_size_bytes": over_limit_bytes},
+        headers=headers,
+    )
+    assert response.status_code == 400
+    assert "30" in response.json()["detail"]
+
+    # No analysis record should have been created for the rejected request.
+    listed = client.get("/analyses", headers=headers)
+    assert listed.json()["items"] == []
+
+
+def test_create_allows_file_at_exact_limit(client):
+    token = _register_and_login(client, "exactlimituser")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    at_limit_bytes = 30 * 1024 * 1024
+
+    response = client.post(
+        "/analyses",
+        json={"file_extension": "csv", "file_name": "exact.csv", "file_size_bytes": at_limit_bytes},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
