@@ -120,9 +120,10 @@ On EC2, systemd sets `BACKEND_URL=http://127.0.0.1:8000` (`infra/systemd/retaill
 
 ## Shared sessions on two EC2 instances
 
-When `REDIS_URL` is configured, Streamlit stores the JWT and user record in
-Redis. The browser receives only an encrypted random session ID. Both
-Streamlit instances must use the same `REDIS_URL` and
+When `REDIS_URL` is configured **and Redis is reachable**, Streamlit stores the JWT and user record in
+Redis. If `REDIS_URL` is empty or Redis is down, login still works in this
+Streamlit process via `st.session_state` (not shared across instances). Both
+Streamlit instances that share sessions must use the same `REDIS_URL` and
 `SESSION_COOKIE_PASSWORD`.
 
 Run the Redis Compose profile on exactly one EC2 instance:

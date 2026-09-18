@@ -41,7 +41,7 @@ def test_refresh_token_flow(client):
     )
     assert login.status_code == 200, login.text
     assert "access_token" in login.json()
-    assert "refresh_token" not in login.json()
+    assert login.json().get("refresh_token")
     assert "retaillen.refresh_token" in login.headers.get("set-cookie", "")
     assert "HttpOnly" in login.headers.get("set-cookie", "")
 

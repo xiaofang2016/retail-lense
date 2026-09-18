@@ -51,7 +51,7 @@ def _login_payload(result: AuthResult, response: Response | None = None) -> dict
     if result.access_token:
         if response and result.refresh_token:
             response.set_cookie(key="retaillen.refresh_token", value=result.refresh_token, **_refresh_cookie_settings())
-        return TokenResponse.respond(result.access_token)
+        return TokenResponse.respond(result.access_token, result.refresh_token)
     return {"status": "otp_required", "phone_hint": result.phone_hint}
 
 
@@ -122,7 +122,7 @@ def verify_otp(request: Request, response: Response, data: VerifyOtpIn):
         raise HTTPException(exc.status_code, detail=exc.detail) from exc
     if result.access_token and result.refresh_token:
         response.set_cookie(key="retaillen.refresh_token", value=result.refresh_token, **_refresh_cookie_settings())
-    return TokenResponse.respond(result.access_token)
+    return TokenResponse.respond(result.access_token, result.refresh_token)
 
 
 @router.post("/2fa/phone")
@@ -166,7 +166,7 @@ def refresh_token(request: Request, response: Response, data: dict | None = None
     new_access_token = create_access_token(user_id)
     new_refresh_token = create_refresh_token(user_id)
     response.set_cookie(key="retaillen.refresh_token", value=new_refresh_token, **_refresh_cookie_settings())
-    return TokenResponse.respond(new_access_token)
+    return TokenResponse.respond(new_access_token, new_refresh_token)
 
 
 @router.post("/logout")

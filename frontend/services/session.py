@@ -264,14 +264,15 @@ def save_login(
             return user
 
         session_id = secrets.token_urlsafe(32)
-        session_store.save(
+        if not session_store.save(
             session_id,
             access_token,
             user,
             ttl_seconds=_session_ttl(remember_me),
             refresh_token=refresh_token_value,
             remember_me=remember_me,
-        )
+        ):
+            return user
         _queue_session_cookie(session_id)
         logger.info("save_login: queued encrypted session cookie for the next cookie-manager run")
     return user
