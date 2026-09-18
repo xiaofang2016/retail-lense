@@ -8,7 +8,7 @@ from tests.test_auth import _register
 def _event(
     body: dict,
     path: str = "/auth/signin",
-    ip: str = "203.0.113.10",
+    ip: str = "200.0.113.10",
     user_agent: str = "pytest",
 ) -> dict:
     return {
