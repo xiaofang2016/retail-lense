@@ -162,7 +162,7 @@ else:
         cols[0].write(str(item.get("created_at") or ""))
         cols[1].write(ip)
         cols[2].write("ok" if item.get("success") else "fail")
-        if ip and ip not in seen and ip not in blocked:
+        if user.get("is_admin") and ip and ip not in seen and ip not in blocked:
             seen.add(ip)
             if cols[3].button("Block", key=f"block-hist-{ip}"):
                 try:
