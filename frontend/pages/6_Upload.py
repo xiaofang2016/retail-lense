@@ -6,6 +6,8 @@ import streamlit as st
 from components.style import setup
 from services import api_client, session
 
+MAX_UPLOAD_MB = 30
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 setup("Upload Data")
 
@@ -64,7 +66,7 @@ for column, field in zip(cols * 2, required_columns):
         st.markdown(f"✓ **{field}**")
 
 st.caption("Optional column: Country")
-
+st.caption(f"Maximum file size: {MAX_UPLOAD_MB}MB")
 
 # ---------------------------------------------------------
 # Sample template
@@ -130,71 +132,79 @@ if uploaded_file is not None:
 
     st.success(f"File selected: **{uploaded_file.name}**")
 
-    try:
-
-        if uploaded_file.name.lower().endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
-
-        st.write(
-            f"**Rows:** {len(df):,}  |  "
-            f"**Columns:** {len(df.columns)}"
-        )
-
-        required = {
-            "InvoiceNo",
-            "StockCode",
-            "Description",
-            "Quantity",
-            "InvoiceDate",
-            "UnitPrice",
-            "CustomerID",
-        }
-
-        actual_columns = set(df.columns)
-        missing_columns = required - actual_columns
-
-        if missing_columns:
-
-            st.error(
-                "The uploaded file is missing the following "
-                "required columns:"
-            )
-
-            for column in sorted(missing_columns):
-                st.write(f"- {column}")
-
-        else:
-
-            file_valid = True
-
-            st.success("✓ File structure is valid.")
-
-            with st.expander("Preview transaction data"):
-
-                # Columns like StockCode can mix numeric and alphanumeric codes
-                # (e.g. 20713 and 85123A), which breaks Streamlit's Arrow-based
-                # rendering unless coerced to a single consistent type first.
-                preview_df = df.head(10).copy()
-
-                for column in preview_df.select_dtypes(include=["object", "str"]).columns:
-                    preview_df[column] = preview_df[column].astype(str)
-
-                st.dataframe(
-                    preview_df,
-                    use_container_width=True,
-                )
-
-    except Exception as exc:
+    if uploaded_file.size > MAX_UPLOAD_BYTES:
 
         st.error(
-            "Unable to read the uploaded file. "
-            "Please check that it is a valid CSV or Excel file."
+            f"This file is {uploaded_file.size / (1024 * 1024):.1f}MB, which exceeds "
+            f"the {MAX_UPLOAD_MB}MB limit. Please upload a smaller file."
         )
 
-        st.caption(str(exc))
+    else:
 
+        try:
+
+            if uploaded_file.name.lower().endswith(".csv"):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+
+            st.write(
+                f"**Rows:** {len(df):,}  |  "
+                f"**Columns:** {len(df.columns)}"
+            )
+
+            required = {
+                "InvoiceNo",
+                "StockCode",
+                "Description",
+                "Quantity",
+                "InvoiceDate",
+                "UnitPrice",
+                "CustomerID",
+            }
+
+            actual_columns = set(df.columns)
+            missing_columns = required - actual_columns
+
+            if missing_columns:
+
+                st.error(
+                    "The uploaded file is missing the following "
+                    "required columns:"
+                )
+
+                for column in sorted(missing_columns):
+                    st.write(f"- {column}")
+
+            else:
+
+                file_valid = True
+
+                st.success("✓ File structure is valid.")
+
+                with st.expander("Preview transaction data"):
+
+                    # Columns like StockCode can mix numeric and alphanumeric codes
+                    # (e.g. 20713 and 85123A), which breaks Streamlit's Arrow-based
+                    # rendering unless coerced to a single consistent type first.
+                    preview_df = df.head(10).copy()
+
+                    for column in preview_df.select_dtypes(include=["object", "str"]).columns:
+                        preview_df[column] = preview_df[column].astype(str)
+
+                    st.dataframe(
+                        preview_df,
+                        use_container_width=True,
+                    )
+
+        except Exception as exc:
+
+            st.error(
+                "Unable to read the uploaded file. "
+                "Please check that it is a valid CSV or Excel file."
+            )
+
+            st.caption(str(exc))
 
 # ---------------------------------------------------------
 # Start analysis
@@ -240,7 +250,9 @@ if st.button(
 
         try:
             # Ask FastAPI for a presigned S3 PUT URL + a new analysis_id (POST /analyses).
-            created = api_client.create_analysis(session.token(), file_extension, uploaded_file.name)
+            created = api_client.create_analysis(
+                session.token(), file_extension, uploaded_file.name, uploaded_file.size
+            )
 
             # Upload the raw bytes straight to S3 -- the backend never sees the file body.
             api_client.upload_bytes_to_presigned_url(

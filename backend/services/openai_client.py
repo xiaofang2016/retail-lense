@@ -7,6 +7,7 @@ from typing import Any
 from core.settings import get_settings
 from services.secrets import get_secret
 
+
 # The worker processes jobs sequentially, so a hung call stalls every analysis behind it
 # in the queue -- a timeout bounds the worst case instead of blocking indefinitely.
 _REQUEST_TIMEOUT_SECONDS = 30.0

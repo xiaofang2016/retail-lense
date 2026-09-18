@@ -197,12 +197,16 @@ def unblock_ip(token: str, ip: str) -> dict[str, Any]:
     return _request("DELETE", "/auth/blocked-ips", token=token, json={"ip": ip})
 
 
-def create_analysis(token: str, file_extension: str, file_name: str) -> dict[str, Any]:
+def create_analysis(token: str, file_extension: str, file_name: str, file_size_bytes: int) -> dict[str, Any]:
     return _request(
         "POST",
         "/analyses",
         token=token,
-        json={"file_extension": file_extension, "file_name": file_name},
+        json={
+            "file_extension": file_extension,
+            "file_name": file_name,
+            "file_size_bytes": file_size_bytes,
+        },
     )
 
 
