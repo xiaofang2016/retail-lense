@@ -22,7 +22,7 @@ EC2 instance role (trust document: `ec2-runtime-trust.json`):
 | --- | --- | --- |
 | `retaillen-backend-runtime` | `backend-runtime.json` | FastAPI + clustering worker: DynamoDB, S3, SQS, SNS, Secrets Manager. |
 
-Frontend EC2 instances do not get an instance profile and must not receive `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or `AWS_PROFILE`. Streamlit talks only to FastAPI, Redis, and S3 presigned URLs (signed by the backend). Leave `AWS_PROFILE` empty on the backend instances so boto3 uses the instance profile.
+Frontend EC2 instances do not get an instance profile and must not receive `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or `AWS_PROFILE`. Streamlit talks only to FastAPI, Redis, and S3 presigned URLs (signed by the backend). Omit `AWS_PROFILE` on backend instances (do not set it to an empty string) so boto3 uses instance role `retaillen-backend-runtime`.
 
 GitHub Actions deploy user `github-eice` (`github-eice.json`): attach this to `github-eice`. `aws ec2-instance-connect ssh` always calls `ec2:DescribeInstances` (even with `--instance-id` and `endpointId`), then `ec2:DescribeInstanceConnectEndpoints` unless `dnsName` is also passed, then `SendSSHPublicKey` and `OpenTunnel`. Laptop user `mike` already has Describe; CI keys do not.
 

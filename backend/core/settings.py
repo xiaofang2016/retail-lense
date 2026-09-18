@@ -23,7 +23,14 @@ def _load_repo_dotenv() -> None:
             os.environ.setdefault(key, value)
 
 
+def _drop_blank_aws_profile() -> None:
+    from core.aws import drop_blank_aws_profile
+
+    drop_blank_aws_profile()
+
+
 _load_repo_dotenv()
+_drop_blank_aws_profile()
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -118,6 +125,7 @@ def _load_jwt_secret(app_env: str, secret_name: str) -> str:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     settings = Settings()
+    _drop_blank_aws_profile()
     settings.app_env = os.getenv("APP_ENV", "aws")
     settings.allow_signup = _bool("ALLOW_SIGNUP", True)
     settings.jwt_secret_name = os.getenv("JWT_SECRET_NAME", "").strip()

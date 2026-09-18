@@ -14,15 +14,9 @@ from core.settings import get_settings
 
 
 def sqs_client():
-    import boto3
+    from core.aws import client as aws_client
 
-    settings = get_settings()
-    if settings.aws_profile:
-        return boto3.Session(
-            profile_name=settings.aws_profile,
-            region_name=settings.aws_region or "us-east-1",
-        ).client("sqs")
-    return boto3.client("sqs", region_name=settings.aws_region or "us-east-1")
+    return aws_client("sqs")
 
 
 

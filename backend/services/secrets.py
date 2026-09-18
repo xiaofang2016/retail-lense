@@ -10,18 +10,6 @@ from functools import lru_cache
 from core.settings import get_settings
 
 
-def secrets_client():
-    import boto3
-
-    settings = get_settings()
-    if settings.aws_profile:
-        return boto3.Session(
-            profile_name=settings.aws_profile,
-            region_name=settings.aws_region,
-        ).client("secretsmanager")
-    return boto3.client("secretsmanager", region_name=settings.aws_region)
-
-
 def _local_fallback(secret_name: str) -> str:
     """Local/test dev only: no real Secrets Manager call, read the .env fallback instead."""
     settings = get_settings()
@@ -31,13 +19,9 @@ def _local_fallback(secret_name: str) -> str:
 
 
 def _secrets_client():
-    import boto3
+    from core.aws import client as aws_client
 
-    region = os.getenv("AWS_REGION", "us-east-1")
-    profile = os.getenv("AWS_PROFILE", "").strip()
-    if profile and not os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
-        return boto3.Session(profile_name=profile, region_name=region).client("secretsmanager")
-    return boto3.client("secretsmanager", region_name=region)
+    return aws_client("secretsmanager")
 
 
 def _extract_secret_value(value: str) -> str:

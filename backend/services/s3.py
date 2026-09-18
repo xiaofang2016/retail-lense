@@ -15,15 +15,9 @@ _LOCAL_SAMPLE_CANDIDATES = (
 
 
 def s3_client():
-    import boto3
+    from core.aws import client as aws_client
 
-    settings = get_settings()
-    if settings.aws_profile:
-        return boto3.Session(
-            profile_name=settings.aws_profile,
-            region_name=settings.aws_region,
-        ).client("s3")
-    return boto3.client("s3", region_name=settings.aws_region)
+    return aws_client("s3")
 
 
 def get_object_bytes(key: str) -> bytes:

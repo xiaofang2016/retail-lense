@@ -20,6 +20,8 @@ def dynamodb_resource():
     """boto3 DynamoDB resource. Uses DDB_ENDPOINT when set (DynamoDB Local)."""
     import boto3
 
+    from core.aws import resource as aws_resource
+
     settings = get_settings()
     kwargs: dict[str, str] = {"region_name": settings.aws_region}
     if settings.ddb_endpoint:
@@ -27,15 +29,7 @@ def dynamodb_resource():
         kwargs["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY_ID") or "local"
         kwargs["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY") or "local"
         return boto3.resource("dynamodb", **kwargs)
-    # Lambda uses the function execution role. Never load a laptop AWS_PROFILE.
-    if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
-        return boto3.resource("dynamodb", **kwargs)
-    if settings.aws_profile:
-        return boto3.Session(
-            profile_name=settings.aws_profile,
-            region_name=settings.aws_region,
-        ).resource("dynamodb")
-    return boto3.resource("dynamodb", **kwargs)
+    return aws_resource("dynamodb")
 
 
 def get_user(email: str) -> dict[str, Any] | None:

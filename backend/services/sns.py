@@ -55,18 +55,9 @@ class AwsSnsSender:
 
 
 def _sns_client():
-    import boto3
+    from core.aws import client as aws_client
 
-    settings = get_settings()
-    kwargs: dict[str, str] = {"region_name": settings.aws_region}
-    if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
-        return boto3.client("sns", **kwargs)
-    if settings.aws_profile:
-        return boto3.Session(
-            profile_name=settings.aws_profile,
-            region_name=settings.aws_region,
-        ).client("sns")
-    return boto3.client("sns", region_name=settings.aws_region)
+    return aws_client("sns")
 
 
 def publish_otp(phone: str, code: str) -> None:

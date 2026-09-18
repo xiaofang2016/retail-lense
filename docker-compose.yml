@@ -6,9 +6,8 @@ services:
       - .env
     environment:
       BACKEND_PORT: "8000"
-      # Local: set AWS_PROFILE in .env (e.g. retaillen-dev-runtime).
-      # EC2: leave AWS_PROFILE empty so boto3 uses the instance role.
-      AWS_PROFILE: ${AWS_PROFILE:-}
+      # Local: set AWS_PROFILE in .env. On EC2 omit the variable so the instance role is used.
+      # Never set AWS_PROFILE to an empty string — boto3 treats that as a missing profile.
       AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
       APP_LOG_LEVEL: "INFO"
       PYTHONUNBUFFERED: "1"
@@ -25,7 +24,7 @@ services:
     env_file:
       - .env
     environment:
-      AWS_PROFILE: ${AWS_PROFILE:-}
+      # Same as backend: never interpolate AWS_PROFILE here (empty string breaks boto3).
       AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
       APP_LOG_LEVEL: "INFO"
       PYTHONUNBUFFERED: "1"

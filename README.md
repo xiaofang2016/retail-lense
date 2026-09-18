@@ -255,7 +255,7 @@ If the machine has **several profiles** and `[default]` is the wrong IAM user, s
 AWS_PROFILE=your-profile-name
 ```
 
-List names with `aws configure list-profiles`. Leave `AWS_PROFILE` empty when `[default]` is already correct, or on EC2 when you use an instance role.
+List names with `aws configure list-profiles`. On a laptop, omit `AWS_PROFILE` when `[default]` is already the course account. On backend EC2 omit it entirely (do not write `AWS_PROFILE=`) so containers use instance role `retaillen-backend-runtime`. A blank value or a named profile that is not in the container is stripped and boto3 falls through to that role.
 
 Do not put access keys in `.env`. A process-level `AWS_PROFILE=...` overrides `.env` (`setdefault`). Restart the API after changing it.
 
