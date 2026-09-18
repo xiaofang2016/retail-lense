@@ -1,0 +1,8 @@
+---
+description: All comments and documentation in this repo must be English
+alwaysApply: true
+---
+
+# English-only comments and docs
+
+All comments, docstrings, README/docs Markdown, CloudFormation descriptions, shell script comments, and `.env.example` notes in this repository must be written in English. Do not add Chinese (or other non-English) comments to source or docs.
