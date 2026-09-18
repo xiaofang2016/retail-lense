@@ -1,4 +1,12 @@
 """OpenAI client. API key from Secrets Manager, not Bedrock."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from core.settings import get_settings
+from services.secrets import get_secret
+
 # The worker processes jobs sequentially, so a hung call stalls every analysis behind it
 # in the queue -- a timeout bounds the worst case instead of blocking indefinitely.
 _REQUEST_TIMEOUT_SECONDS = 30.0
@@ -11,13 +19,6 @@ _TEMPERATURE = 0.3
 # Caps cost/latency for what the prompt already asks for -- concise recommendations, not
 # an essay.
 _MAX_COMPLETION_TOKENS = 500
-
-from __future__ import annotations
-
-from typing import Any
-
-from core.settings import get_settings
-from services.secrets import get_secret
 
 _SYSTEM_PROMPT = (
     "You are a retail analytics advisor. Given RFM segmentation results for an "
