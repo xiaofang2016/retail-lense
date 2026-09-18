@@ -24,4 +24,6 @@ EC2 instance role (trust document: `ec2-runtime-trust.json`):
 
 Frontend EC2 instances do not get an instance profile and must not receive `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or `AWS_PROFILE`. Streamlit talks only to FastAPI, Redis, and S3 presigned URLs (signed by the backend). Leave `AWS_PROFILE` empty on the backend instances so boto3 uses the instance profile.
 
+GitHub Actions deploy user `github-eice` (`github-eice.json`): same APIs as `aws ec2-instance-connect ssh` (`SendSSHPublicKey`, `OpenTunnel`, and `DescribeInstances` in `us-east-1` so the CLI can resolve AZ/private IP from the instance id). Attach this policy to `github-eice`.
+
 Do not issue long-lived access keys into the repo. Backend EC2 uses an instance profile. Do not use SSM for access or parameters.
