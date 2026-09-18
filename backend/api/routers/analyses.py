@@ -41,6 +41,12 @@ def create_analysis(
     current_user: UserRecord = Depends(get_current_user),
 ) -> AnalysisCreateOut:
     settings = get_settings()
+    max_upload_bytes = settings.max_upload_mb * 1024 * 1024
+    if body.file_size_bytes > max_upload_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File is too large. Maximum upload size is {settings.max_upload_mb}MB.",
+        )
     analysis_id = str(uuid4())
     key = s3.upload_key(current_user.user_id, analysis_id, body.file_extension)
     upload_url = s3.presign_put_url(key, _CONTENT_TYPES[body.file_extension])

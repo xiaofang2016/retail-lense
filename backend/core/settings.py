@@ -91,6 +91,8 @@ class Settings:
     smtp_user: str
     smtp_password: str
     smtp_auth_strategy: str
+    max_upload_mb: int
+
 
     def is_local(self) -> bool:
         return self.app_env in {"local", "test"}
@@ -141,6 +143,7 @@ def get_settings() -> Settings:
     settings.aws_region = os.getenv("AWS_REGION", "us-east-1")
     settings.aws_profile = os.getenv("AWS_PROFILE", "").strip()
     settings.s3_bucket = os.getenv("S3_BUCKET", "retaillen-dev").strip()
+    settings.max_upload_mb = _int("MAX_UPLOAD_MB", 30)
     prefix = os.getenv("S3_PREFIX_PUBLIC", "public/").strip() or "public/"
     if not prefix.endswith("/"):
         prefix = f"{prefix}/"
