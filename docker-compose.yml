@@ -6,10 +6,10 @@ services:
       - .env
     environment:
       BACKEND_PORT: "8000"
-      #DDB_ENDPOINT: http://dynamodb:8000 #leave it blank to use AWS DynamoDB service instead of local DynamoDB
-      AWS_PROFILE: retaillen-dev-runtime #leave it blank to use default AWS profile, for ec2 instance, you can use IAM role instead of AWS profile
-
-      AWS_DEFAULT_REGION: us-east-1
+      # Local: set AWS_PROFILE in .env (e.g. retaillen-dev-runtime).
+      # EC2: leave AWS_PROFILE empty so boto3 uses the instance role.
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
       APP_LOG_LEVEL: "INFO"
       PYTHONUNBUFFERED: "1"
     ports:
@@ -17,16 +17,22 @@ services:
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
-      - ~/.aws:/root/.aws:ro  
+      - ~/.aws:/root/.aws:ro
 
   worker:
     build:
       context: ./backend
     env_file:
       - .env
+    environment:
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      APP_LOG_LEVEL: "INFO"
+      PYTHONUNBUFFERED: "1"
     command: python -m workers.clustering
     volumes:
       - ./backend:/app
+      - ~/.aws:/root/.aws:ro
     depends_on:
       - backend
 
