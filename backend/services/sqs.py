@@ -20,9 +20,10 @@ def sqs_client():
     if settings.aws_profile:
         return boto3.Session(
             profile_name=settings.aws_profile,
-            region_name=settings.aws_region,
+            region_name=settings.aws_region or "us-east-1",
         ).client("sqs")
-    return boto3.client("sqs", region_name=settings.aws_region)
+    return boto3.client("sqs", region_name=settings.aws_region or "us-east-1")
+
 
 
 def enqueue_analysis(message: dict[str, Any]) -> None:
@@ -36,6 +37,7 @@ def enqueue_analysis(message: dict[str, Any]) -> None:
 def receive_jobs(max_messages: int = 1, wait_time_seconds: int = 10) -> list[dict[str, Any]]:
     """Long-poll for jobs. Each item is {"body": <parsed message>, "receipt_handle": str}."""
     settings = get_settings()
+    print(settings.sqs_analysis_queue_url)
     response = sqs_client().receive_message(
         QueueUrl=settings.sqs_analysis_queue_url,
         MaxNumberOfMessages=max_messages,

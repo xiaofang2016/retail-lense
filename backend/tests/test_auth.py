@@ -1,4 +1,13 @@
 from core.settings import get_settings
+from services.user_store import get_user_store
+
+
+def _make_admin(username: str) -> None:
+    store = get_user_store()
+    user = store.get_by_username(username)
+    assert user is not None
+    user.is_admin = True
+    store.update(user)
 
 
 def _register(client, suffix: str = "one"):
@@ -137,8 +146,22 @@ def test_ip_restriction(client, monkeypatch):
     assert blocked.status_code == 429
 
 
+def test_non_admin_cannot_manage_blocked_ips(client):
+    payload, _ = _register(client, "notadmin")
+    login = client.post("/auth/token", data={"username": payload["username"], "password": payload["password"]})
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    listed = client.get("/auth/blocked-ips", headers=headers)
+    assert listed.status_code == 403
+
+    blocked = client.post("/auth/blocked-ips", json={"ip": "203.0.113.9"}, headers=headers)
+    assert blocked.status_code == 403
+
+
 def test_user_can_block_an_ip(client):
     payload, _ = _register(client, "blockip")
+    _make_admin(payload["username"])
     login = client.post("/auth/token", data={"username": payload["username"], "password": payload["password"]})
     token = login.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
