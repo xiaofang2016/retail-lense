@@ -12,7 +12,7 @@ data/samples/ Tiny schema samples (not the full UCI dataset)
 docs/         Architecture notes
 ```
 
-Compute runs on **EC2 only** (no Lambda). Persistence is **DynamoDB + S3** (no RDS / SQL).
+Compute runs on **EC2**, plus an **auth Lambda** for sign-in and sign-up. Persistence is **DynamoDB + S3** (no RDS / SQL). Local auth still uses FastAPI when `AUTH_API_URL` is empty.
 
 ## Python
 
@@ -151,8 +151,18 @@ Auth API examples:
 curl -s http://localhost:8000/auth/register -H 'Content-Type: application/json' \
   -d '{"email":"a@example.com","username":"alice","full_name":"Alice","password":"password1","password_confirm":"password1"}'
 
-# login (OAuth2 form: POST /auth/token)
+# login (OAuth2 form: POST /auth/token). If SMS 2FA is on, this returns
+# {"status":"otp_required","phone_hint":"..."} instead of access_token.
 curl -s http://localhost:8000/auth/token -d 'username=alice&password=password1'
+
+# optional SMS 2FA (bind after login; not required at sign-up)
+curl -s http://localhost:8000/auth/2fa/phone -H "Authorization: Bearer TOKEN" \
+  -H 'Content-Type: application/json' -d '{"phone":"+64211234567"}'
+curl -s http://localhost:8000/auth/2fa/confirm -H "Authorization: Bearer TOKEN" \
+  -H 'Content-Type: application/json' -d '{"code":"123456"}'
+curl -s http://localhost:8000/auth/verify-otp -H 'Content-Type: application/json' \
+  -d '{"username":"alice","code":"123456"}'
+curl -s http://localhost:8000/auth/2fa/disable -H "Authorization: Bearer TOKEN"
 
 # login history (Bearer token)
 curl -s http://localhost:8000/auth/login-history -H "Authorization: Bearer TOKEN"
@@ -251,6 +261,17 @@ Do not put access keys in `.env`. A process-level `AWS_PROFILE=...` overrides `.
 
 One-off for the table script: `AWS_PROFILE=your-profile AWS_REGION=us-east-1 ./infra/scripts/create_dynamodb_tables.sh --yes`
 
+### Sign-in Lambda
+
+No CloudFormation and no API Gateway. Deploy with the AWS CLI (or the console steps in `infra/scripts/deploy_signin_lambda.sh`). Farhan should attach `infra/iam/signin-lambda-deployer.json` if the current profile cannot create the function.
+
+```bash
+export AWS_PROFILE=mike-assume-infra AWS_REGION=us-east-1
+./infra/scripts/deploy_signin_lambda.sh
+```
+
+Set `JWT_SECRET_NAME=retaillen/jwt` on Lambda and backend EC2. Their execution roles need `secretsmanager:GetSecretValue` for that secret; do not put the secret value in an AWS environment variable. Put the Function URL base in `.env` as `AUTH_API_URL` and restart Streamlit. The same function handles `POST /auth/signin` and `POST /auth/register`. Leave it empty locally so auth stays on FastAPI. The function uses role `retaillen-signin-lambda`, not `AWS_PROFILE`. `GET /auth/login-history` stays on FastAPI.
+
 ## Production (EC2, Amazon Linux)
 
 CloudFormation (`infra/scripts/deploy.sh`) is still a stub. The SSH pipeline below is the **test environment**: a merge (push) to **`dev`** deploys immediately. No SSM.
@@ -275,8 +296,10 @@ backend/.venv/bin/pip install -r backend/requirements.txt
 python3.12 -m venv frontend/.venv
 frontend/.venv/bin/pip install -r frontend/requirements.txt
 
-# Repo-root .env stays on the box only (APP_ENV=aws, empty DDB_ENDPOINT, AWS_PROFILE if needed)
-# edit .env: BASE_URL, SMTP, AWS_PROFILE, JWT_SECRET, ...
+# Repo-root .env stays on the box only (APP_ENV=aws, empty DDB_ENDPOINT).
+# Backend EC2 uses instance role retaillen-backend-runtime (no AWS_PROFILE).
+# Frontend EC2: no instance role and no AWS keys.
+# edit .env: BASE_URL, SMTP, JWT_SECRET_NAME, AUTH_API_URL, ...
 
 sudo cp infra/systemd/retaillen-api.service infra/systemd/retaillen-ui.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -309,7 +332,7 @@ A merge into **`dev`** (or a direct push to `dev`) runs tests, then deploys only
 
 Backend and both frontend instances share `DEPLOY_EICE_ENDPOINT_ID`.
 
-On a frontend-only instance, set `BACKEND_URL` in `.env` to the backend host or ALB (not `http://backend:8000`). The frontend deploy uses `docker compose up --no-deps` so it does not start the API on that box.
+On a frontend-only instance, set `BACKEND_URL` in `.env` to the backend host or ALB (not `http://backend:8000`). Do not attach an instance profile or put AWS keys on that host. Compose does not pass `AWS_*` into the Streamlit container. The frontend deploy uses `docker compose up --no-deps` so it does not start the API on that box.
 
 Port **80** needs root (or `setcap`). Better: Streamlit on 8501, ALB/nginx on 80.
 
@@ -321,6 +344,7 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 | Service | Role |
 | --- | --- |
 | EC2 | Streamlit + FastAPI + analysis workers |
+| Lambda | Sign-in and sign-up via one Function URL; PutItem users and login history |
 | ALB | HTTPS termination, traffic distribution |
 | S3 | Public UCI sample, per-user uploads, exported reports |
 | DynamoDB | Users, login history, password-reset tokens, OTPs, analysis metadata |
@@ -333,7 +357,7 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 
 **Assignment forbids:** RDBMS, SageMaker, Bedrock, WAF, ACM, Device Farm, Redshift, QuickSight, Shield, Inspector.
 
-**This repo does not use:** Lambda, SSM. Secrets live in Secrets Manager (or `JWT_SECRET` on a laptop).
+**This repo does not use:** SSM. Secrets live in Secrets Manager (`JWT_SECRET` is a local-only fallback). Sign-in and sign-up can run on Lambda; IAM user `mike` needs `infra/iam/signin-lambda-deployer.json` to deploy it.
 
 ## Analysis flow
 
@@ -345,6 +369,7 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 
 - Passwords hashed with bcrypt; JWT from Secrets Manager (or `JWT_SECRET` locally).
 - Failed logins increment a per-user counter; after 5 failures the account is locked for 24 hours (423).
+- Optional SMS 2FA: bind a phone on Account after login. Unbound accounts still sign in with password only.
 - Forgot-password emails a one-time link (48h). Unknown emails still return 200.
 - Every attempt is stored as login history with client IP (`X-Forwarded-For` when present).
 - An account owner can block an IP; later sign-ins from that IP to that account return 403.

@@ -161,4 +161,5 @@ Do not add a `.html` file for a new screen.
 - Do put new API calls in `api_client.py`, not inside a page with raw `httpx`.
 - Do not create `index.html`, `app.js`, or a `static/` CSS tree for the main UI.
 - Do not call AWS (S3/DynamoDB) from Streamlit. The backend owns that.
+- Do not load AWS credentials into Streamlit (`AWS_PROFILE`, access keys, instance role).
 - Do not run the API with `frontend/.venv` — the `api` package lives under `backend/`.

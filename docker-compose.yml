@@ -7,14 +7,17 @@ services:
     environment:
       BACKEND_PORT: "8000"
       #DDB_ENDPOINT: http://dynamodb:8000 #leave it blank to use AWS DynamoDB service instead of local DynamoDB
-      #AWS_PROFILE: my-aws-profile #leave it blank to use default AWS profile, for ec2 instance, you can use IAM role instead of AWS profile
+      AWS_PROFILE: retaillen-dev-runtime #leave it blank to use default AWS profile, for ec2 instance, you can use IAM role instead of AWS profile
 
-      AWS_DEFAULT_REGION: us-east-1    
+      AWS_DEFAULT_REGION: us-east-1
+      APP_LOG_LEVEL: "INFO"
+      PYTHONUNBUFFERED: "1"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
+      - ~/.aws:/root/.aws:ro  
 
   worker:
     build:
@@ -27,21 +30,67 @@ services:
     depends_on:
       - backend
 
+  
   frontend:
     build:
       context: ./frontend
-    env_file:
-      - .env
+    # Do not use env_file: .env — that file holds AWS keys/profile for the API.
     environment:
       # Same Compose network: http://backend:8000. Frontend-only EC2: set BACKEND_URL
       # in .env to the backend host or ALB (this line passes that value through).
       BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      AUTH_API_URL: ${AUTH_API_URL:-}
+      REDIS_URL: ${REDIS_URL:-}
+      SESSION_COOKIE_PASSWORD: ${SESSION_COOKIE_PASSWORD:-}
+      REMEMBER_ME_DAYS: ${REMEMBER_ME_DAYS:-14}
+      TOKEN_TIME: ${TOKEN_TIME:-48}
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
     ports:
       - "${FRONTEND_PORT:-8501}:8501"
     volumes:
       - ./frontend:/app
     depends_on:
       - backend
+
+  lambda-signin:
+    build:
+      context: ./backend
+      dockerfile: lambda_signin/Dockerfile  
+    env_file:
+      - .env
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      LOG_LEVEL: INFO
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "${LAMBDA_AUTH_PORT:-8502}:8080"
+    volumes:
+      - ~/.aws:/root/.aws:ro  
+
+
+
+   
+  # Start this profile on exactly one EC2 instance. Both frontends must use
+  # that instance's private IP in REDIS_URL.
+  redis:
+    profiles:
+      - session-store
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+    command:
+      - sh
+      - -c
+      - >-
+        test -n "$$REDIS_PASSWORD" ||
+        { echo "REDIS_PASSWORD is required"; exit 1; };
+        exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
   # in case you want to use Mailpit for email testing, uncomment the following lines
   #mailpit:
   #  image: axllent/mailpit:v1.21
@@ -57,5 +106,3 @@ services:
   #    - "8001:8000"
   #  volumes:
   #    - dynamodb-data:/data
-
- 

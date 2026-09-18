@@ -148,9 +148,8 @@ if user:
 
     if st.button("Sign out"):
         session.sign_out()
-        # Let the cookie component finish deleting the browser session cookie.
         st.success("Signed out.")
-        st.stop()
+        st.rerun()
 else:
     st.caption(
         "Not signed in. Sign in to upload and analyse your own data."

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from asyncio.log import logger
 import json
 import os
 from functools import lru_cache
@@ -34,9 +35,21 @@ def _key(session_id: str) -> str:
     return f"{SESSION_KEY_PREFIX}{session_id}"
 
 
-def save(session_id: str, access_token: str, user: dict[str, Any], ttl_seconds: int) -> None:
+def save(
+    session_id: str,
+    access_token: str,
+    user: dict[str, Any],
+    ttl_seconds: int,
+    refresh_token: str | None = None,
+    remember_me: bool = False,
+) -> None:
     payload = json.dumps(
-        {"access_token": access_token, "user": user},
+        {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": user,
+            "remember_me": remember_me,
+        },
         separators=(",", ":"),
     )
     _client().set(_key(session_id), payload, ex=ttl_seconds)

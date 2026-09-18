@@ -32,6 +32,35 @@ def test_register_and_login(client):
     assert me.json()["email"] == payload["email"]
 
 
+def test_refresh_token_flow(client):
+    payload, _ = _register(client, "refresh")
+
+    login = client.post(
+        "/auth/token",
+        data={"username": payload["username"], "password": payload["password"]},
+    )
+    assert login.status_code == 200, login.text
+    assert "access_token" in login.json()
+    assert "refresh_token" not in login.json()
+    assert "retaillen.refresh_token" in login.headers.get("set-cookie", "")
+    assert "HttpOnly" in login.headers.get("set-cookie", "")
+
+    old_access = login.json()["access_token"]
+    refresh = login.cookies.get("retaillen.refresh_token")
+    assert refresh
+
+    refreshed = client.post("/auth/refresh")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["access_token"]
+    assert refreshed.json()["access_token"] != old_access
+
+    me = client.get(
+        "/users/me",
+        headers={"Authorization": f"Bearer {refreshed.json()['access_token']}"},
+    )
+    assert me.status_code == 200
+
+
 def test_register_conflict(client):
     _register(client, "dup")
     again = client.post(

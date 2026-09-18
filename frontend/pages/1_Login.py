@@ -1,9 +1,12 @@
 """Sign in and forgot-password. Uses POST /auth/signin and /users/forgot-password."""
 
+import logging
 import time
 from venv import logger
 
 import streamlit as st
+
+logger = logging.getLogger("retaillen.frontend.login")
 
 from components.style import setup
 from services import api_client, session
@@ -23,23 +26,38 @@ if session.signed_in():
     st.stop()
 
 otp_username = st.session_state.get("otp_username")
+def _complete_login(access_token: str, remember_me: bool, refresh_token_value: str | None = None) -> None:
+    session.save_login(
+        access_token,
+        remember_me=remember_me,
+        refresh_token_value=refresh_token_value,
+    )
+    st.success("Signed in. Redirecting to the Account page...")
+    st.switch_page("pages/4_Account.py")
+
+
 if otp_username:
     st.caption(f"Enter the SMS code sent to {st.session_state.get('otp_hint') or 'your phone'}.")
     with st.form("otp"):
         code = st.text_input("Verification code")
         submitted_otp = st.form_submit_button("Verify")
     if submitted_otp:
+        remember_me = bool(st.session_state.get("otp_remember"))
         try:
             data = api_client.verify_otp(
                 otp_username,
                 code.strip(),
-                remember_me=bool(st.session_state.get("otp_remember")),
+                remember_me=remember_me,
             )
-            session.save_login(data["access_token"], remember_me=bool(st.session_state.get("otp_remember")))
             st.session_state.pop("otp_username", None)
             st.session_state.pop("otp_hint", None)
             st.session_state.pop("otp_remember", None)
-            st.success("Signed in. You can now open the Account page.")
+            _complete_login(
+                data["access_token"],
+                remember_me=remember_me,
+                refresh_token_value=data.get("refresh_token"),
+            )
+            st.stop()
         except ApiError as exc:
             st.error(exc.detail)
         except Exception as exc:
@@ -60,18 +78,20 @@ with st.form("signin"):
 if submitted:
     try:
         data = api_client.signin(username.strip(), password, remember_me=remember)
-        logger.info(f"Sign in response data: {data}")
+        logger.info("signin response: %s", data)
         if data.get("status") == "otp_required":
             st.session_state["otp_username"] = username.strip()
             st.session_state["otp_hint"] = data.get("phone_hint") or ""
             st.session_state["otp_remember"] = remember
             st.rerun()
-        logger.info("OTP not required, proceeding with normal sign in.")
-        session.save_login(data["access_token"], remember_me=remember)
-        logger.info("Sign in successful.")
-        # Let the cookie component finish writing before another Streamlit run.
-        st.success("Signed in. redirecting to the Account page...")
-        st.switch_page("pages/4_Account.py")
+        else:
+            _complete_login(
+                data["access_token"],
+                remember_me=remember,
+                refresh_token_value=data.get("refresh_token"),
+            )
+            logger.info("User %s signed in successfully.", username.strip())
+            st.stop()
     except ApiError as exc:
         st.error(exc.detail)
     except Exception as exc:

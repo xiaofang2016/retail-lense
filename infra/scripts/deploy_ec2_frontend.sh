@@ -2,6 +2,7 @@
 # Deploy Streamlit with Docker Compose on the frontend EC2.
 # Uses --no-deps so this host does not start the backend service.
 # Point BACKEND_URL in .env at the backend EC2 / ALB (not http://backend:8000).
+# This host must not have an instance profile or AWS access keys.
 set -euo pipefail
 
 ROOT="${APP_DIR:-/home/mike/retail-lense}"

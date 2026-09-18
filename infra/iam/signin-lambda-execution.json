@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:us-east-1:817817875692:log-group:/aws/lambda/retaillen-signin*"
+    },
+    {
+      "Sid": "UsersAndLoginHistory",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:817817875692:table/retaillen-users",
+        "arn:aws:dynamodb:us-east-1:817817875692:table/retaillen-users/index/*",
+        "arn:aws:dynamodb:us-east-1:817817875692:table/retaillen-login-history",
+        "arn:aws:dynamodb:us-east-1:817817875692:table/retaillen-login-history/index/*",
+        "arn:aws:dynamodb:us-east-1:817817875692:table/retaillen-otps"
+      ]
+    },
+    {
+      "Sid": "SmsOtp",
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadJwtSecret",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/jwt-*"
+    }
+  ]
+}

@@ -144,6 +144,10 @@ def verify_otp(username: str, code: str, remember_me: bool = False) -> dict[str,
     )
 
 
+def refresh_access_token(refresh_token: str) -> dict[str, Any]:
+    return _request("POST", "/auth/refresh", json={"refresh_token": refresh_token})
+
+
 def start_phone_2fa(token: str, phone: str) -> dict[str, Any]:
     return _request("POST", "/auth/2fa/phone", token=token, json={"phone": phone})
 

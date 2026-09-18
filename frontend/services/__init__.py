@@ -1,8 +1,7 @@
 """Frontend services package bootstrap.
 
-Loads repo-root .env for local Streamlit runs so service modules can read
-AUTH_API_URL, BACKEND_URL, REDIS_URL, and related settings without manual
-shell exports.
+Loads a small allowlist from repo-root .env for local Streamlit runs.
+AWS credentials and other backend secrets are never copied into this process.
 """
 
 from __future__ import annotations
@@ -10,20 +9,33 @@ import logging
 import os
 from pathlib import Path
 
+_FRONTEND_ENV_KEYS = {
+    "APP_LOG_LEVEL",
+    "AUTH_API_URL",
+    "BACKEND_URL",
+    "FRONTEND_PORT",
+    "REDIS_URL",
+    "REMEMBER_ME_DAYS",
+    "SESSION_COOKIE_PASSWORD",
+    "TOKEN_TIME",
+}
+
+
 def _load_repo_dotenv() -> None:
-	"""Load repo-root .env into os.environ without overriding existing vars."""
-	path = Path(__file__).resolve().parents[2] / ".env"
-	if not path.is_file():
-		return
-	for raw in path.read_text().splitlines():
-		line = raw.strip()
-		if not line or line.startswith("#") or "=" not in line:
-			continue
-		key, _, value = line.partition("=")
-		key = key.strip()
-		value = value.strip().strip("'").strip('"')
-		if key:
-			os.environ.setdefault(key, value)
+    """Load frontend settings from repo-root .env without overriding existing vars."""
+    path = Path(__file__).resolve().parents[2] / ".env"
+    if not path.is_file():
+        return
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key.startswith("AWS_") or key not in _FRONTEND_ENV_KEYS:
+            continue
+        value = value.strip().strip("'").strip('"')
+        os.environ.setdefault(key, value)
 
 
 _load_repo_dotenv()
