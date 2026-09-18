@@ -14,10 +14,11 @@ setup("Analysis Library")
 # GET /analyses requires a JWT, so the page can't render anything real without a session.
 if not session.signed_in():
     st.warning("Please sign in to view your analyses.")
-
-    if st.button("Go to Sign In", use_container_width=True):
-        st.switch_page("pages/1_Login.py")
-
+    countdown_notice = st.empty()
+    for sec in range(3, 0, -1):
+        countdown_notice.info(f"Redirecting in {sec}...")
+        time.sleep(1)
+    st.switch_page("pages/4_Account.py")
     st.stop()
 
 
