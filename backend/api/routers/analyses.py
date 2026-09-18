@@ -1,5 +1,5 @@
 """Analysis job creation, status polling, listing, and the public UCI reference report."""
-
+import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -21,6 +21,7 @@ from services.analysis_store import get_analysis_store
 from shared.models import AnalysisItem
 
 router = APIRouter()
+logger = logging.getLogger("api.analyses")
 
 _CONTENT_TYPES = {
     "csv": "text/csv",
@@ -114,6 +115,29 @@ def get_analysis_report(
         # or removed) -- surface this as a clean 502 instead of an unhandled 500.
         raise HTTPException(status_code=502, detail="Report file could not be read from storage") from exc
 
+@router.delete("/{analysis_id}", status_code=204)
+def delete_analysis(
+    analysis_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+) -> None:
+    store = get_analysis_store()
+    item = store.get(analysis_id)
+    if item is None or item["user_id"] != current_user.user_id:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    settings = get_settings()
+    user_id = item["user_id"]
+
+    # S3 cleanup is best-effort: a missing permission or a stale/already-gone object
+    # shouldn't block removing the record itself, which is what the UI actually needs.
+    try:
+        if item.get("s3_upload_key"):
+            s3.delete_object(item["s3_upload_key"])
+        s3.delete_prefix(f"{settings.s3_prefix_results}{user_id}/{analysis_id}/")
+    except ClientError:
+        logger.exception("analysis %s: S3 cleanup failed, deleting the record anyway", analysis_id)
+
+    store.delete(analysis_id)
 
 @router.get("/{analysis_id}")
 def get_analysis(

@@ -20,6 +20,8 @@ class AnalysisStore(Protocol):
 
     def get(self, analysis_id: str) -> AnalysisItem | None: ...
 
+    def delete(self, analysis_id: str) -> None: ...
+
     def list_by_user(self, user_id: str) -> list[AnalysisItem]: ...
 
     def update(self, analysis_id: str, **fields: object) -> AnalysisItem | None: ...
@@ -55,6 +57,9 @@ class MemoryAnalysisStore:
             item.update(fields)  # type: ignore[typeddict-item]
             return item
 
+    def delete(self, analysis_id: str) -> None:
+        with self._lock:
+            self._by_id.pop(analysis_id, None)
 
 class DynamoAnalysisStore:
     def __init__(self) -> None:
@@ -103,6 +108,8 @@ class DynamoAnalysisStore:
         attributes = response.get("Attributes")
         return attributes if attributes else None  # type: ignore[return-value]
 
+    def delete(self, analysis_id: str) -> None:
+        self._table.delete_item(Key={"analysis_id": analysis_id})
 
 @lru_cache(maxsize=1)
 def get_analysis_store() -> AnalysisStore:
