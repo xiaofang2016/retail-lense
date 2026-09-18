@@ -314,7 +314,7 @@ echo 'mike ALL=(root) NOPASSWD: /bin/systemctl restart retaillen-api, /bin/syste
 sudo chmod 440 /etc/sudoers.d/retaillen
 ```
 
-Allow GitHub Actions to reach the instances through the EC2 Instance Connect Endpoint (no public port 22). The IAM user behind `DEPLOY_AWS_*` must be allowed to open a tunnel to those instances.
+Allow GitHub Actions to reach the instances through the EC2 Instance Connect Endpoint (no public port 22). Attach `infra/iam/github-eice.json` to IAM user `github-eice` (the keys in `DEPLOY_AWS_*`).
 
 ### GitHub Actions secrets
 

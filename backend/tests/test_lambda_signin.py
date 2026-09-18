@@ -8,7 +8,7 @@ from tests.test_auth import _register
 def _event(
     body: dict,
     path: str = "/auth/signin",
-    ip: str = "203.0.113.10",
+    ip: str = "200.0.113.10",
     user_agent: str = "pytest",
 ) -> dict:
     return {
@@ -39,7 +39,7 @@ def test_lambda_signin_success(client):
     items = history.json()["items"]
     assert items
     assert items[0]["success"] is True
-    assert items[0]["ip"] == "203.0.113.10"
+    assert items[0]["ip"] == "200.0.113.10"
 
 
 def test_lambda_signin_wrong_password(client):
