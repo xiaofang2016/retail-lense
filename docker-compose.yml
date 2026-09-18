@@ -33,7 +33,9 @@ services:
     env_file:
       - .env
     environment:
-      BACKEND_URL: http://backend:8000
+      # Same Compose network: http://backend:8000. Frontend-only EC2: set BACKEND_URL
+      # in .env to the backend host or ALB (this line passes that value through).
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
     ports:
       - "${FRONTEND_PORT:-8501}:8501"
     volumes:

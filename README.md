@@ -291,17 +291,25 @@ echo 'mike ALL=(root) NOPASSWD: /bin/systemctl restart retaillen-api, /bin/syste
 sudo chmod 440 /etc/sudoers.d/retaillen
 ```
 
-Allow GitHub Actions to SSH in: security group port 22 from GitHub-hosted runner IPs (or a fixed jump host). Put the matching public key in `/home/mike/.ssh/authorized_keys`.
+Allow GitHub Actions to reach the instances through the EC2 Instance Connect Endpoint (no public port 22). The IAM user behind `DEPLOY_AWS_*` must be allowed to open a tunnel to those instances.
 
 ### GitHub Actions secrets
 
 | Secret | Example |
 | --- | --- |
-| `DEPLOY_HOST` | EC2 public DNS or EIP |
+| `DEPLOY_HOST_BACKEND_US_1D` | Backend instance id in `us-east-1d` |
+| `DEPLOY_HOST_FRONTEND_US_1A` | Frontend instance id in `us-east-1a` |
+| `DEPLOY_HOST_FRONTEND_US_1C` | Frontend instance id in `us-east-1c` |
+| `DEPLOY_EICE_ENDPOINT_ID` | One EICE id for backend and both frontend instances, e.g. `eice-05b0600db42072e83` |
 | `DEPLOY_USER` | `mike` |
-| `DEPLOY_SSH_KEY` | private key that logs in as `mike` |
+| `DEPLOY_AWS_ACCESS_KEY_ID` | IAM access key that can use Instance Connect Endpoint |
+| `DEPLOY_AWS_SECRET_ACCESS_KEY` | Matching secret key |
 
-A merge into **`dev`** (or a direct push to `dev`) runs tests, then SSH-runs `infra/scripts/deploy_ec2.sh` (`git reset --hard origin/dev`, pip install, restart API/UI, `GET /health`). Manual: Actions → CI/CD → Run workflow (still deploys `dev` to the test box). Production/`master` is not wired yet.
+A merge into **`dev`** (or a direct push to `dev`) runs tests, then deploys only the stack that changed: `backend/**` → backend EC2 in `US_1D`; `frontend/**` → **both** frontend instances (`US_1A` and `US_1C`) in parallel (each box `git fetch` + `git reset --hard origin/dev` + restart Streamlit). A `docker-compose.yml` change deploys backend and both frontends. Manual: Actions → CI/CD → Run workflow (deploys all). Production/`master` is not wired yet.
+
+Backend and both frontend instances share `DEPLOY_EICE_ENDPOINT_ID`.
+
+On a frontend-only instance, set `BACKEND_URL` in `.env` to the backend host or ALB (not `http://backend:8000`). The frontend deploy uses `docker compose up --no-deps` so it does not start the API on that box.
 
 Port **80** needs root (or `setcap`). Better: Streamlit on 8501, ALB/nginx on 80.
 

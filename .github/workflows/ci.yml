@@ -37,65 +37,146 @@ jobs:
           pip install -r requirements.txt
           PYTHONPATH=. pytest tests/
 
-  deploy-test:
-    name: Deploy test (dev)
+  changes:
+    name: Detect deploy targets
     needs: test
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      - name: Filter paths
+        id: filter
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "Manual run: deploying backend and frontend."
+            exit 0
+          fi
+
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "No previous commit: deploying backend and frontend."
+            exit 0
+          fi
+
+          files="$(git diff --name-only "$BEFORE" "${{ github.sha }}")"
+          echo "Changed files:"
+          echo "$files"
+
+          backend=false
+          frontend=false
+          if echo "$files" | grep -qE '^(backend/|infra/scripts/deploy_ec2_backend\.sh|docker-compose\.yml)'; then
+            backend=true
+          fi
+          if echo "$files" | grep -qE '^(frontend/|infra/scripts/deploy_ec2_frontend\.sh|docker-compose\.yml)'; then
+            frontend=true
+          fi
+
+          echo "backend=${backend}" >> "$GITHUB_OUTPUT"
+          echo "frontend=${frontend}" >> "$GITHUB_OUTPUT"
+
+  deploy-backend:
+    name: Deploy backend EC2
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
     env:
+      AWS_REGION: us-east-1
       DEPLOY_BRANCH: dev
-
+      INSTANCE_ID: ${{ secrets.DEPLOY_HOST_BACKEND_US_1D }}
+      EICE_ENDPOINT_ID: ${{ secrets.DEPLOY_EICE_ENDPOINT_ID }}
+      OS_USER: ${{ secrets.DEPLOY_USER }}
     steps:
       - name: Check deploy secrets
         run: |
-          if [ -z "${{ secrets.DEPLOY_HOST }}" ]; then
-            echo "DEPLOY_HOST is EMPTY"
+          if [ -z "${INSTANCE_ID}" ]; then
+            echo "DEPLOY_HOST_BACKEND_US_1D must be the backend EC2 instance id (i-...)."
             exit 1
-          else
-            echo "DEPLOY_HOST is SET"
+          fi
+          if [ -z "${EICE_ENDPOINT_ID}" ]; then
+            echo "DEPLOY_EICE_ENDPOINT_ID is required (eice-...)."
+            exit 1
+          fi
+          if [ -z "${{ secrets.DEPLOY_AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.DEPLOY_AWS_SECRET_ACCESS_KEY }}" ]; then
+            echo "DEPLOY_AWS_ACCESS_KEY_ID and DEPLOY_AWS_SECRET_ACCESS_KEY are required."
+            exit 1
           fi
 
-          if [ -z "${{ secrets.DEPLOY_USER }}" ]; then
-            echo "DEPLOY_USER is EMPTY"
-            exit 1
-          else
-            echo "DEPLOY_USER is SET"
-          fi
+      - uses: actions/checkout@v4
 
-          if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
-            echo "DEPLOY_SSH_KEY is EMPTY"
-            exit 1
-          else
-            echo "DEPLOY_SSH_KEY is SET"
-          fi
-
-      - name: Deploy test env on Amazon Linux over SSH
-        uses: appleboy/ssh-action@v1.2.2
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: 22
-          envs: DEPLOY_BRANCH
-          command_timeout: 20m
+          aws-access-key-id: ${{ secrets.DEPLOY_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.DEPLOY_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-          script: |
-            set -euo pipefail
+      - name: Deploy backend via Instance Connect Endpoint
+        timeout-minutes: 20
+        run: |
+          chmod +x infra/scripts/ci_eice_ssh.sh
+          ./infra/scripts/ci_eice_ssh.sh \
+            'export APP_DIR=/home/mike/retail-lense DEPLOY_BRANCH=dev; bash /home/mike/retail-lense/infra/scripts/deploy_ec2_backend.sh'
 
-            APP_DIR=/home/mike/retail-lense
-            BRANCH=dev
+  deploy-frontend:
+    name: Deploy frontend EC2 (${{ matrix.az }})
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        az: [US_1A, US_1C]
+    env:
+      AWS_REGION: us-east-1
+      DEPLOY_BRANCH: dev
+      EICE_ENDPOINT_ID: ${{ secrets.DEPLOY_EICE_ENDPOINT_ID }}
+      OS_USER: ${{ secrets.DEPLOY_USER }}
+    steps:
+      - name: Select frontend instance
+        run: |
+          case "${{ matrix.az }}" in
+            US_1A) echo "INSTANCE_ID=${{ secrets.DEPLOY_HOST_FRONTEND_US_1A }}" >> "$GITHUB_ENV" ;;
+            US_1C) echo "INSTANCE_ID=${{ secrets.DEPLOY_HOST_FRONTEND_US_1C }}" >> "$GITHUB_ENV" ;;
+            *) echo "Unknown AZ ${{ matrix.az }}"; exit 1 ;;
+          esac
 
-            cd "${APP_DIR}"
+      - name: Check deploy secrets
+        run: |
+          echo "Frontend AZ: ${{ matrix.az }}"
+          if [ -z "${INSTANCE_ID}" ]; then
+            echo "Set DEPLOY_HOST_FRONTEND_US_1A and DEPLOY_HOST_FRONTEND_US_1C to the instance ids (i-...)."
+            exit 1
+          fi
+          if [ -z "${EICE_ENDPOINT_ID}" ]; then
+            echo "DEPLOY_EICE_ENDPOINT_ID is required (eice-...)."
+            exit 1
+          fi
+          if [ -z "${{ secrets.DEPLOY_AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.DEPLOY_AWS_SECRET_ACCESS_KEY }}" ]; then
+            echo "DEPLOY_AWS_ACCESS_KEY_ID and DEPLOY_AWS_SECRET_ACCESS_KEY are required."
+            exit 1
+          fi
 
-            echo "Fetching latest code..."
-            git fetch origin
+      - uses: actions/checkout@v4
 
-            echo "Resetting to origin/${BRANCH}..."
-            git reset --hard "origin/${BRANCH}"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.DEPLOY_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.DEPLOY_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-            export APP_DIR
-            export DEPLOY_BRANCH="${BRANCH}"
-
-            echo "Running deployment script..."
-            bash "${APP_DIR}/infra/scripts/deploy_ec2.sh"
+      - name: Deploy frontend via Instance Connect Endpoint
+        timeout-minutes: 20
+        run: |
+          chmod +x infra/scripts/ci_eice_ssh.sh
+          ./infra/scripts/ci_eice_ssh.sh \
+            'export APP_DIR=/home/mike/retail-lense DEPLOY_BRANCH=dev; bash /home/mike/retail-lense/infra/scripts/deploy_ec2_frontend.sh'
