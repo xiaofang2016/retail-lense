@@ -13,6 +13,17 @@
       }
     },
     {
+      "Sid": "DescribeEiceEndpoint",
+      "Effect": "Allow",
+      "Action": "ec2:DescribeInstanceConnectEndpoints",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
       "Sid": "SendSshPublicKey",
       "Effect": "Allow",
       "Action": "ec2-instance-connect:SendSSHPublicKey",

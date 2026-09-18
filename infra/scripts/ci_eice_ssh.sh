@@ -4,9 +4,9 @@
 #   aws ec2-instance-connect ssh --instance-id i-... --connection-type eice \
 #     --eice-options endpointId=eice-... --os-user mike --region us-east-1
 #
-# That CLI does not accept a remote command after `--` (ParamValidation). The
-# command is sent on stdin to the login shell instead. Instance id + EICE id
-# are enough; do not pass a private IP.
+# That CLI does not accept extra ssh flags or a remote command after `--`.
+# GitHub-hosted runners have an empty known_hosts, so we wrap `ssh` to skip
+# interactive host-key prompts. The deploy command is sent on stdin.
 #
 # Usage:
 #   INSTANCE_ID=i-... EICE_ENDPOINT_ID=eice-... OS_USER=mike \
@@ -21,12 +21,29 @@ fi
 REGION="${AWS_REGION:-us-east-1}"
 REMOTE_CMD="${1:?remote command is required}"
 
-aws ec2-instance-connect ssh \
-  --instance-id "${INSTANCE_ID}" \
-  --os-user "${OS_USER}" \
-  --connection-type eice \
-  --eice-options "endpointId=${EICE_ENDPOINT_ID}" \
-  --region "${REGION}" <<EOF
+WRAP_DIR="$(mktemp -d)"
+cleanup() {
+  rm -rf "${WRAP_DIR}"
+}
+trap cleanup EXIT
+
+cat > "${WRAP_DIR}/ssh" <<'WRAP'
+#!/bin/sh
+exec /usr/bin/ssh \
+  -o BatchMode=yes \
+  -o StrictHostKeyChecking=accept-new \
+  -o UserKnownHostsFile=/dev/null \
+  "$@"
+WRAP
+chmod +x "${WRAP_DIR}/ssh"
+
+PATH="${WRAP_DIR}:${PATH}" \
+  aws ec2-instance-connect ssh \
+    --instance-id "${INSTANCE_ID}" \
+    --os-user "${OS_USER}" \
+    --connection-type eice \
+    --eice-options "endpointId=${EICE_ENDPOINT_ID}" \
+    --region "${REGION}" <<EOF
 set -euo pipefail
 ${REMOTE_CMD}
 EOF
