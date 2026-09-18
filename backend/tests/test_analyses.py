@@ -76,3 +76,45 @@ def test_report_not_ready_until_done(client):
     )
     # Still 404/error at the S3 layer since nothing was actually written -- this test only
     # confirms the "not ready" gate opens once status flips to done, not the S3 read path.
+
+
+def test_delete_removes_analysis(client):
+    token = _register_and_login(client, "deleteuser")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = client.post("/analyses", json={"file_extension": "csv", "file_name": "transactions.csv"}, headers=headers)
+    analysis_id = created.json()["analysis_id"]
+
+    response = client.delete(f"/analyses/{analysis_id}", headers=headers)
+    assert response.status_code == 204
+
+    status_response = client.get(f"/analyses/{analysis_id}/status", headers=headers)
+    assert status_response.status_code == 404
+
+    listed = client.get("/analyses", headers=headers)
+    assert listed.json()["items"] == []
+
+
+def test_delete_hides_other_users_analysis(client):
+    token_a = _register_and_login(client, "deletera")
+    token_b = _register_and_login(client, "deleterb")
+
+    created = client.post(
+        "/analyses",
+        json={"file_extension": "csv", "file_name": "transactions.csv"},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    analysis_id = created.json()["analysis_id"]
+
+    response = client.delete(
+        f"/analyses/{analysis_id}",
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert response.status_code == 404
+
+    # Confirm it's untouched -- user B's failed attempt shouldn't have deleted user A's data.
+    status_response = client.get(
+        f"/analyses/{analysis_id}/status",
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert status_response.status_code == 200

@@ -98,3 +98,19 @@ def get_object_json(key: str) -> dict:
     import json
 
     return json.loads(get_object_bytes(key))
+
+def delete_object(key: str) -> None:
+    settings = get_settings()
+    s3_client().delete_object(Bucket=settings.s3_bucket, Key=key)
+
+
+def delete_prefix(prefix: str) -> None:
+    """Delete every object under a prefix, e.g. results/{user_id}/{analysis_id}/ --
+    there can be more than one file there (report.json, metadata.json)."""
+    settings = get_settings()
+    client = s3_client()
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=settings.s3_bucket, Prefix=prefix):
+        objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+        if objects:
+            client.delete_objects(Bucket=settings.s3_bucket, Delete={"Objects": objects})

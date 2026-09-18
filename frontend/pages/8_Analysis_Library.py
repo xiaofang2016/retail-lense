@@ -46,10 +46,6 @@ _STATUS_DISPLAY = {
     "processing": "Processing",
 }
 
-# Session-local only: there is no DELETE /analyses endpoint, so "delete" just hides an
-# id from this browser session. It reappears if the app is restarted or state is cleared.
-st.session_state.setdefault("hidden_analysis_ids", set())
-
 try:
     fetched = api_client.list_analyses(session.token())["items"]
 except api_client.ApiError as exc:
@@ -64,7 +60,6 @@ analyses = [
         "status": _STATUS_DISPLAY.get(item["status"], "Processing"),
     }
     for item in fetched
-    if item["analysis_id"] not in st.session_state["hidden_analysis_ids"]
 ]
 
 st.session_state["analyses"] = analyses
@@ -105,26 +100,21 @@ if delete_id:
                 type="primary",
                 use_container_width=True,
             ):
+                try:
+                    api_client.delete_analysis(session.token(), delete_id)
 
-                # Persist the hide across the rerun that follows, since "analyses" is
-                # refetched from the backend on every run and would otherwise bring it back.
-                st.session_state["hidden_analysis_ids"].add(delete_id)
+                    st.session_state.pop(
+                        "delete_analysis_id"
+                    )
 
-                st.session_state["analyses"] = [
-                    item
-                    for item in st.session_state["analyses"]
-                    if item["id"] != delete_id
-                ]
+                    st.success(
+                        "Analysis deleted successfully."
+                    )
 
-                st.session_state.pop(
-                    "delete_analysis_id"
-                )
+                    st.rerun()
 
-                st.success(
-                    "Analysis deleted successfully."
-                )
-
-                st.rerun()
+                except api_client.ApiError as exc:
+                    st.error(f"Could not delete this analysis: {exc.detail}")
 
         with confirm_col2:
 
