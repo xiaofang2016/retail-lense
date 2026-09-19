@@ -122,7 +122,7 @@ def _flush_pending_session_cookie() -> None:
 def _restore() -> None:
     if cookies_enabled():
         _flush_pending_session_cookie()
-    if st.session_state.get("access_token") or not cookies_enabled():
+    if not cookies_enabled():
         return
 
     cookies = _cookies()
@@ -135,13 +135,17 @@ def _restore() -> None:
 
     saved = session_store.load(session_id)
     if saved is None:
+        if st.session_state.get("access_token"):
+            return
         _queue_session_cookie_delete()
         return
 
-    st.session_state["access_token"] = saved["access_token"]
-    st.session_state["refresh_token"] = saved.get("refresh_token")
-    st.session_state["user"] = saved.get("user")
-    st.session_state["remember_me"] = bool(saved.get("remember_me"))
+    if not st.session_state.get("access_token"):
+        st.session_state["access_token"] = saved["access_token"]
+        st.session_state["refresh_token"] = saved.get("refresh_token")
+        st.session_state["remember_me"] = bool(saved.get("remember_me"))
+    if saved.get("user") is not None:
+        st.session_state["user"] = saved["user"]
 
 
 def _decode_token_payload(token: str) -> dict[str, Any]:

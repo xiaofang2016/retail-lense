@@ -53,7 +53,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-8501}:8501"
     volumes:
-      - ./frontend:/app
+      - ./frontend:/main
     depends_on:
       - backend
 

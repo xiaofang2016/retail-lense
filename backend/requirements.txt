@@ -11,3 +11,4 @@ openai>=1.30.0
 pydantic>=2.7.0
 python-multipart>=0.0.9
 pytest>=8.2.0
+redis>=8.1.0

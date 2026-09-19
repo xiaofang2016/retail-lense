@@ -4,12 +4,16 @@ import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
-# Ordered best -> worst. k is fixed at 4 everywhere, so there are always exactly this many labels.
+# Ordered best -> worst. Default k is 4; fewer unique customers use fewer labels.
 _SEGMENT_LABELS = ["High Value", "Loyal", "At Risk", "Lost"]
 
 
 def fit_segments(rfm_frame: pd.DataFrame, k: int = 4) -> pd.DataFrame:
     features = rfm_frame[["Recency", "Frequency", "Monetary"]]
+    n_samples = len(features)
+    if n_samples == 0:
+        raise ValueError("RFM frame is empty; need at least one customer to cluster")
+    k = max(1, min(int(k), n_samples))
     scaled = StandardScaler().fit_transform(features)
 
     model = KMeans(n_clusters=k, random_state=42, n_init=10)

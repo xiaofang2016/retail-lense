@@ -35,6 +35,7 @@ def test_save_login_persists_refresh_token(monkeypatch):
         captured["ttl_seconds"] = ttl_seconds
         captured["refresh_token"] = refresh_token
         captured["remember_me"] = remember_me
+        return True
 
     monkeypatch.setattr(session.session_store, "save", fake_save)
 
@@ -71,6 +72,30 @@ def test_restore_loads_session_from_cookie(monkeypatch):
     assert session.token() == "access-from-redis"
     assert st.session_state["user"]["username"] == "alice"
     assert st.session_state["remember_me"] is True
+
+
+def test_restore_refreshes_cached_user_from_redis(monkeypatch):
+    st.session_state["access_token"] = "already-there"
+    st.session_state["user"] = {"username": "alice", "is_admin": False}
+    cookies = Cookies({session.SESSION_COOKIE: "sid-1"})
+    monkeypatch.setattr(session.session_store, "enabled", lambda: True)
+    monkeypatch.setattr(session, "_cookies", lambda: cookies)
+    monkeypatch.setattr(
+        session.session_store,
+        "load",
+        lambda session_id: {
+            "access_token": "access-from-redis",
+            "user": {"username": "alice", "is_admin": True},
+            "remember_me": True,
+        }
+        if session_id == "sid-1"
+        else None,
+    )
+    monkeypatch.setattr(session, "_token_has_expired", lambda token: False)
+
+    session._restore()
+    assert st.session_state["access_token"] == "already-there"
+    assert st.session_state["user"]["is_admin"] is True
 
 
 def test_token_refreshes_expired_access_token(monkeypatch):
