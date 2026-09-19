@@ -49,7 +49,7 @@ def setup(title: str) -> None:
     if logo_path.exists():
         st.logo(str(logo_path))
 
-    session.prepare()
+    session.prepare(remount=True)
     user = session.current_user()
     if user:
         st.sidebar.caption(user.get("email") or user.get("username") or "")

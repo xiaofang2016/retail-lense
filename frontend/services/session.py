@@ -62,6 +62,11 @@ def prepare(*, remount: bool = False) -> None:
     _flush_pending_session_cookie()
     _flush_pending_login()
 
+    # main.py reads access_token before pg.run(); refresh nav after a cookie restore.
+    if st.session_state.get("access_token") and not st.session_state.get("_retaillen_nav_synced"):
+        st.session_state["_retaillen_nav_synced"] = True
+        st.rerun()
+
 
 def _script_run_ctx():
     try:
@@ -358,3 +363,4 @@ def sign_out() -> None:
         st.session_state.pop("user", None)
         st.session_state.pop("_pending_login", None)
         st.session_state.pop("_pending_session_id", None)
+        st.session_state.pop("_retaillen_nav_synced", None)

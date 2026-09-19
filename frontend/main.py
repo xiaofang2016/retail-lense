@@ -3,8 +3,10 @@ import streamlit as st
 from services import session
 
 
-session.prepare(remount=True)
-signed_in = session.signed_in()
+# Do not construct EncryptedCookieManager here. Custom components declared in the
+# router script (before st.navigation / set_page_config) often fail to load their
+# frontend assets. Pages mount the cookie iframe in setup().
+signed_in = bool(st.session_state.get("access_token"))
 
 
 # ---------------------------------------------------------
