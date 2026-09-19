@@ -5,6 +5,7 @@ import streamlit as st
 from components.report_view import render_report
 from components.style import setup
 from services import api_client, session
+from services.display_time import format_submitted
 
 setup("Analysis Report")
 
@@ -67,7 +68,7 @@ st.title("Customer Analysis")
 if selected_analysis:
     st.caption(
         f"{selected_analysis.get('report', '')}  •  "
-        f"Submitted {selected_analysis['submitted'].strftime('%d %b %Y, %I:%M %p')}"
+        f"Submitted {format_submitted(selected_analysis['submitted'])}"
     )
 
 

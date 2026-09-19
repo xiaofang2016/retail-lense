@@ -7,6 +7,7 @@ import streamlit as st
 
 from components.style import setup
 from services import api_client, session
+from services.display_time import DISPLAY_TZ, format_submitted, parse_created_at
 
 
 setup("Analysis Library")
@@ -56,7 +57,7 @@ analyses = [
     {
         "id": item["analysis_id"],
         "report": item["original_filename"],
-        "submitted": datetime.fromisoformat(item["created_at"]),
+        "submitted": parse_created_at(item["created_at"]),
         "status": _STATUS_DISPLAY.get(item["status"], "Processing"),
     }
     for item in fetched
@@ -218,35 +219,32 @@ if search_button:
         ]
 
 
-    today = datetime.now().date()
-
+    now_local = datetime.now(DISPLAY_TZ)
+    today = now_local.date()
+    submitted_local = filtered_df["submitted"].dt.tz_convert(str(DISPLAY_TZ))
 
     if date_filter == "Today":
 
         filtered_df = filtered_df[
-            filtered_df["submitted"].dt.date == today
+            submitted_local.dt.date == today
         ]
 
 
     elif date_filter == "Last 7 days":
 
-        start_date = datetime.now() - timedelta(
-            days=7
-        )
+        start_date = now_local - timedelta(days=7)
 
         filtered_df = filtered_df[
-            filtered_df["submitted"] >= start_date
+            submitted_local >= start_date
         ]
 
 
     elif date_filter == "Last 30 days":
 
-        start_date = datetime.now() - timedelta(
-            days=30
-        )
+        start_date = now_local - timedelta(days=30)
 
         filtered_df = filtered_df[
-            filtered_df["submitted"] >= start_date
+            submitted_local >= start_date
         ]
 
 
@@ -362,11 +360,7 @@ else:
 
         with col2:
 
-            st.write(
-                analysis["submitted"].strftime(
-                    "%d %b %Y, %I:%M %p"
-                )
-            )
+            st.write(format_submitted(analysis["submitted"]))
 
 
         # -------------------------------------------------
