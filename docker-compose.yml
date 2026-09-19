@@ -54,9 +54,7 @@ services:
       - "${FRONTEND_PORT:-8501}:8501"
     volumes:
       - ./frontend:/app
-    depends_on:
-      - backend
-
+      
   lambda-signin:
     build:
       context: ./backend
