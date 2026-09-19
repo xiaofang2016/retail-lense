@@ -113,3 +113,84 @@ def test_token_refreshes_expired_access_token(monkeypatch):
     assert session.token() == "fresh-access"
     assert st.session_state["access_token"] == "fresh-access"
     assert st.session_state["refresh_token"] == "fresh-refresh"
+
+
+class _CookieRunCtx:
+    def __init__(self):
+        self.widget_user_keys_this_run = set()
+
+
+class _SharedCookieRunCtx:
+    def __init__(self):
+        self.shared = _CookieRunCtx()
+
+
+def _install_fake_cookie_manager(monkeypatch, ctx=None):
+    created = []
+    ctx = ctx or _CookieRunCtx()
+
+    def _keys():
+        keys = getattr(ctx, "widget_user_keys_this_run", None)
+        if keys is not None:
+            return keys
+        return ctx.shared.widget_user_keys_this_run
+
+    class FakeManager(dict):
+        def __init__(self):
+            super().__init__()
+            created.append(self)
+            _keys().add(session.COOKIE_COMPONENT_KEY)
+
+        def ready(self):
+            return True
+
+    monkeypatch.setattr(session.session_store, "enabled", lambda: True)
+    monkeypatch.setattr(session, "_new_cookie_manager", FakeManager)
+    monkeypatch.setattr(session, "_script_run_ctx", lambda: ctx)
+    return created, ctx
+
+
+def test_cookie_manager_constructed_once_when_signed_in_then_prepare(monkeypatch):
+    created, _ctx = _install_fake_cookie_manager(monkeypatch)
+
+    assert session.signed_in() is False
+    session.prepare()
+    session.prepare()
+
+    assert len(created) == 1
+    assert st.session_state[session.COOKIE_MANAGER_STATE_KEY] is created[0]
+
+
+def test_cookie_manager_constructed_once_for_main_then_page_prepare(monkeypatch):
+    created, _ctx = _install_fake_cookie_manager(monkeypatch)
+
+    session.prepare(remount=True)
+    assert session.signed_in() is False
+    session.prepare()
+
+    assert len(created) == 1
+
+
+def test_cookie_manager_reconstructed_on_new_script_run(monkeypatch):
+    created, ctx = _install_fake_cookie_manager(monkeypatch)
+
+    session.prepare(remount=True)
+    assert len(created) == 1
+
+    ctx.widget_user_keys_this_run.clear()
+    session.prepare(remount=True)
+
+    assert len(created) == 2
+    assert st.session_state[session.COOKIE_MANAGER_STATE_KEY] is created[1]
+
+
+def test_cookie_manager_uses_shared_widget_keys(monkeypatch):
+    created, ctx = _install_fake_cookie_manager(monkeypatch, ctx=_SharedCookieRunCtx())
+
+    session.prepare(remount=True)
+    session.prepare()
+    assert len(created) == 1
+
+    ctx.shared.widget_user_keys_this_run.clear()
+    session.prepare(remount=True)
+    assert len(created) == 2

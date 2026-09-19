@@ -32,25 +32,26 @@ def _validate_cookie_prefix(prefix: str) -> str:
 
 COOKIE_PREFIX = _validate_cookie_prefix("retaillen_")
 COOKIE_MANAGER_STATE_KEY = "_retaillen_cookie_manager"
-COOKIE_EPOCH_KEY = "_retaillen_cookie_epoch"
+COOKIE_COMPONENT_KEY = "CookieManager.sync_cookies"
 
 
 def cookies_enabled() -> bool:
     return session_store.enabled()
 
 
-def prepare() -> None:
+def prepare(*, remount: bool = False) -> None:
     """Mount the cookie component once per script run and restore Redis sessions.
 
-    EncryptedCookieManager must be constructed every run so the browser component
-    actually reads/writes cookies. Caching the manager across reruns leaves it
-    stuck as not-ready, so the session cookie is never stored.
+    EncryptedCookieManager uses a fixed Streamlit key, so it must be constructed
+    only once per run. Call with remount=True from main.py so a new instance is
+    created on each rerun; reusing a cached manager across reruns leaves it
+    stuck as not-ready.
     """
     if not cookies_enabled():
         return
 
-    st.session_state[COOKIE_EPOCH_KEY] = int(st.session_state.get(COOKIE_EPOCH_KEY) or 0) + 1
-    st.session_state.pop(COOKIE_MANAGER_STATE_KEY, None)
+    if remount and not _cookie_manager_mounted_this_run():
+        st.session_state.pop(COOKIE_MANAGER_STATE_KEY, None)
 
     cookies = _cookies()
     if not cookies.ready():
@@ -62,22 +63,69 @@ def prepare() -> None:
     _flush_pending_login()
 
 
-def _cookies():
-    epoch = st.session_state.get(COOKIE_EPOCH_KEY, 0)
-    cached = st.session_state.get(COOKIE_MANAGER_STATE_KEY)
-    if isinstance(cached, tuple) and cached[0] == epoch:
-        return cached[1]
+def _script_run_ctx():
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+    except ImportError:
+        try:
+            from streamlit.runtime.scriptrunner_utils.script_run_context import (
+                get_script_run_ctx,
+            )
+        except ImportError:
+            return None
+    return get_script_run_ctx()
 
+
+def _widget_user_keys_this_run():
+    ctx = _script_run_ctx()
+    if ctx is None:
+        return None
+    keys = getattr(ctx, "widget_user_keys_this_run", None)
+    if keys is not None:
+        return keys
+    shared = getattr(ctx, "shared", None)
+    if shared is None:
+        return None
+    return getattr(shared, "widget_user_keys_this_run", None)
+
+
+def _cookie_manager_mounted_this_run() -> bool:
+    user_keys = _widget_user_keys_this_run()
+    if user_keys is None:
+        return False
+    try:
+        return COOKIE_COMPONENT_KEY in user_keys
+    except TypeError:
+        return False
+
+
+def _cached_cookie_manager():
+    cached = st.session_state.get(COOKIE_MANAGER_STATE_KEY)
+    if isinstance(cached, tuple) and len(cached) == 2:
+        return cached[1]
+    return cached
+
+
+def _new_cookie_manager():
     password = os.getenv("SESSION_COOKIE_PASSWORD", "").strip()
     if not password:
         raise RuntimeError("SESSION_COOKIE_PASSWORD is required when REDIS_URL is configured")
     from streamlit_cookies_manager import EncryptedCookieManager
 
-    manager = EncryptedCookieManager(
+    return EncryptedCookieManager(
         prefix=COOKIE_PREFIX,
         password=password,
     )
-    st.session_state[COOKIE_MANAGER_STATE_KEY] = (epoch, manager)
+
+
+def _cookies():
+    cached = _cached_cookie_manager()
+    if cached is not None:
+        if _cookie_manager_mounted_this_run() or _widget_user_keys_this_run() is None:
+            return cached
+
+    manager = _new_cookie_manager()
+    st.session_state[COOKIE_MANAGER_STATE_KEY] = manager
     return manager
 
 

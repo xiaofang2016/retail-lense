@@ -3,6 +3,7 @@ import streamlit as st
 from services import session
 
 
+session.prepare(remount=True)
 signed_in = session.signed_in()
 
 
