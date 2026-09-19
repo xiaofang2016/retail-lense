@@ -199,6 +199,7 @@ def _restore() -> None:
         st.session_state["remember_me"] = bool(saved.get("remember_me"))
     if saved.get("user") is not None:
         st.session_state["user"] = saved["user"]
+    _refresh_user_from_api()
 
 
 def _decode_token_payload(token: str) -> dict[str, Any]:
@@ -233,6 +234,50 @@ def _session_ttl(remember_me: bool) -> int:
     if remember_me:
         return max(60, int(os.getenv("REMEMBER_ME_DAYS", "14")) * 86400)
     return max(60, int(os.getenv("TOKEN_TIME", "48")) * 3600)
+
+
+_USER_REFRESH_SECONDS = 30
+
+
+def _refresh_user_from_api() -> None:
+    """Reload is_admin and other public fields from FastAPI.
+
+    Frontend EC2 has no AWS role, so ops promote users in DynamoDB on the
+    backend. Redis may still hold a stale user until we refetch /users/me.
+    """
+    access_token = st.session_state.get("access_token")
+    if not access_token or _token_has_expired(access_token):
+        return
+    now = time.time()
+    last = float(st.session_state.get("_user_refreshed_at") or 0)
+    if last and now - last < _USER_REFRESH_SECONDS:
+        return
+    try:
+        user = api_client.me(access_token)
+    except Exception:
+        return
+    if not isinstance(user, dict):
+        return
+    st.session_state["_user_refreshed_at"] = now
+    previous = st.session_state.get("user")
+    st.session_state["user"] = user
+    if previous == user or not cookies_enabled():
+        return
+    cookies = _cookies()
+    if not cookies.ready():
+        return
+    session_id = _cookie_session_id(cookies)
+    if not session_id:
+        return
+    saved = session_store.load(session_id) or {}
+    session_store.save(
+        session_id,
+        saved.get("access_token") or access_token,
+        user,
+        ttl_seconds=_session_ttl(bool(saved.get("remember_me") or st.session_state.get("remember_me"))),
+        refresh_token=saved.get("refresh_token") or st.session_state.get("refresh_token"),
+        remember_me=bool(saved.get("remember_me") or st.session_state.get("remember_me")),
+    )
 
 
 def token() -> str | None:
@@ -289,6 +334,7 @@ def token() -> str | None:
 
 def current_user() -> dict[str, Any] | None:
     _restore()
+    _refresh_user_from_api()
     return st.session_state.get("user")
 
 
@@ -364,3 +410,4 @@ def sign_out() -> None:
         st.session_state.pop("_pending_login", None)
         st.session_state.pop("_pending_session_id", None)
         st.session_state.pop("_retaillen_nav_synced", None)
+        st.session_state.pop("_user_refreshed_at", None)

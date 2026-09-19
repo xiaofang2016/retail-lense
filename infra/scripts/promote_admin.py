@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """Promote or revoke admin on a DynamoDB user.
 
-Looks up EmailIndex or UsernameIndex, then SET is_admin. If REDIS_URL is set,
-also patches matching Streamlit session records so a refresh picks up is_admin.
+Run this on the backend EC2. That instance profile
+(`retaillen-backend-runtime`) is attached to the box; boto3 picks it up from
+IMDS. There is no ~/.aws on that host and AWS_PROFILE must not be set.
+
+Frontend Streamlit EC2 has no instance role — do not run it there.
+
+Laptop: AWS_PROFILE names a profile in ~/.aws.
 
     python infra/scripts/promote_admin.py --username anna --yes
-    # Needs boto3 + redis (backend/.venv after pip install -r backend/requirements.txt)
     python infra/scripts/promote_admin.py --email anna@example.com --yes
     python infra/scripts/promote_admin.py --username anna --revoke --yes
     python infra/scripts/promote_admin.py --username anna --dry-run
+
+Needs boto3 (backend/.venv on the EC2 host, or the backend image). Redis is
+optional: Streamlit refreshes is_admin from GET /users/me.
 """
 
 from __future__ import annotations
@@ -16,15 +23,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
-import boto3
-from botocore.exceptions import ClientError, ProfileNotFound
-from boto3.dynamodb.conditions import Key
-
 ROOT = Path(__file__).resolve().parents[2]
 SESSION_KEY_PREFIX = "retaillen:session:"
+IN_CONTAINER_ENV = "PROMOTE_ADMIN_IN_CONTAINER"
+
+
+def _ensure_backend_path() -> None:
+    backend = ROOT / "backend"
+    if backend.is_dir():
+        sys.path.insert(0, str(backend))
+    elif Path("/app/core/aws.py").is_file():
+        sys.path.insert(0, "/app")
 
 
 def load_dotenv(path: Path) -> None:
@@ -41,13 +54,100 @@ def load_dotenv(path: Path) -> None:
             os.environ[key] = value
 
 
-def table():
-    region = os.getenv("AWS_REGION", "us-east-1")
-    endpoint = os.getenv("DDB_ENDPOINT", "").strip()
-    profile = os.getenv("AWS_PROFILE", "").strip()
-    name = os.getenv("DDB_USERS_TABLE", "retaillen-users")
+def _in_backend_container() -> bool:
+    return os.getenv(IN_CONTAINER_ENV) == "1" or Path("/.dockerenv").is_file()
 
+
+def _running_compose_services() -> set[str]:
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "ps", "--services", "--filter", "status=running"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode != 0:
+        return set()
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def _has_aws_credentials() -> bool:
+    if os.getenv("DDB_ENDPOINT", "").strip():
+        return True
+    if os.getenv("AWS_ACCESS_KEY_ID", "").strip():
+        return True
+    # Named AWS_PROFILE in .env is not credentials. On EC2 the instance role
+    # comes from IMDS, not ~/.aws. Probe the same chain as backend/core/aws.py.
+    os.environ.setdefault("AWS_METADATA_SERVICE_TIMEOUT", "2")
+    os.environ.setdefault("AWS_METADATA_SERVICE_NUM_ATTEMPTS", "2")
+    _ensure_backend_path()
+    try:
+        from core.aws import session as aws_session
+
+        return aws_session().get_credentials() is not None
+    except ImportError:
+        try:
+            import boto3
+        except ImportError:
+            return False
+        try:
+            return boto3.Session().get_credentials() is not None
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
+def _reexec_in_backend_container(argv: list[str]) -> int:
+    src = Path(__file__).resolve()
+    dest = "/tmp/promote_admin.py"
+    copied = subprocess.run(
+        ["docker", "compose", "cp", str(src), f"backend:{dest}"],
+        cwd=ROOT,
+    )
+    if copied.returncode != 0:
+        return copied.returncode
+    return subprocess.call(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "-e",
+            f"{IN_CONTAINER_ENV}=1",
+            "backend",
+            "python",
+            dest,
+            *argv,
+        ],
+        cwd=ROOT,
+    )
+
+
+def _no_credentials_message(services: set[str]) -> str:
+    if "frontend" in services and "backend" not in services:
+        return (
+            "This host looks like a frontend-only Streamlit instance (no AWS role).\n"
+            "SSH to the backend EC2 and run:\n"
+            "  python infra/scripts/promote_admin.py --username <name> --yes"
+        )
+    return (
+        "No AWS credentials. Do not run this on frontend Streamlit EC2.\n"
+        "SSH to the backend EC2 — instance role retaillen-backend-runtime is "
+        "attached to that instance (IMDS), not ~/.aws."
+    )
+
+
+def table():
+    import boto3
+
+    name = os.getenv("DDB_USERS_TABLE", "retaillen-users")
+    endpoint = os.getenv("DDB_ENDPOINT", "").strip()
     if endpoint:
+        region = os.getenv("AWS_REGION", "us-east-1")
         resource = boto3.resource(
             "dynamodb",
             region_name=region,
@@ -57,24 +157,15 @@ def table():
         )
         return resource.Table(name)
 
-    kwargs: dict[str, str] = {"region_name": region}
-    session_kwargs = dict(kwargs)
-    if profile:
-        session_kwargs["profile_name"] = profile
+    _ensure_backend_path()
+    from core.aws import resource as aws_resource
 
-    try:
-        session = boto3.Session(**session_kwargs)
-    except ProfileNotFound:
-        print(
-            f"warning: AWS profile '{profile}' not found; falling back to default credentials",
-            file=sys.stderr,
-        )
-        session = boto3.Session(**kwargs)
-
-    return session.resource("dynamodb").Table(name)
+    return aws_resource("dynamodb").Table(name)
 
 
 def find_user(users, email: str | None, username: str | None) -> dict | None:
+    from boto3.dynamodb.conditions import Key
+
     if email:
         response = users.query(
             IndexName="EmailIndex",
@@ -160,6 +251,35 @@ def main() -> int:
         return 2
 
     load_dotenv(ROOT / ".env")
+
+    if not _in_backend_container():
+        services = _running_compose_services()
+        if not _has_aws_credentials():
+            if "frontend" in services and "backend" not in services:
+                print(_no_credentials_message(services), file=sys.stderr)
+                return 2
+            if "backend" in services:
+                print(
+                    "No AWS credentials on this host; retrying inside the backend "
+                    "container (same EC2 instance role via IMDS)"
+                )
+                return _reexec_in_backend_container(sys.argv[1:])
+            print(_no_credentials_message(services), file=sys.stderr)
+            return 2
+
+    try:
+        import boto3  # noqa: F401
+    except ImportError:
+        if not _in_backend_container() and "backend" in _running_compose_services():
+            print("boto3 is not installed on this host; running inside the backend container")
+            return _reexec_in_backend_container(sys.argv[1:])
+        print(
+            "boto3 is not installed. On the backend EC2 use:\n"
+            "  backend/.venv/bin/python infra/scripts/promote_admin.py ...",
+            file=sys.stderr,
+        )
+        return 2
+
     users = table()
     item = find_user(users, args.email, args.username)
     if not item:
@@ -193,12 +313,18 @@ def main() -> int:
     print("updated DynamoDB")
     sessions = refresh_session_cache(item["user_id"], flag, dry_run=False)
     print(f"updated {sessions} Redis session(s)")
+    if sessions == 0:
+        print("Streamlit will pick up is_admin from GET /users/me (refresh Account)")
     return 0
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except ClientError as exc:
-        print(f"aws error: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    except Exception as exc:
+        from botocore.exceptions import ClientError
+
+        if isinstance(exc, ClientError):
+            print(f"aws error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        raise

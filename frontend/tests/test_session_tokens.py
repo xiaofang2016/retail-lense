@@ -7,6 +7,10 @@ def setup_function():
     st.session_state.clear()
 
 
+def _raise_skip_api(_token):
+    raise RuntimeError("skip api")
+
+
 class Cookies(dict):
     def __init__(self, *args, ready=True, **kwargs):
         super().__init__(*args, **kwargs)
@@ -68,6 +72,7 @@ def test_restore_loads_session_from_cookie(monkeypatch):
         else None,
     )
     monkeypatch.setattr(session, "_token_has_expired", lambda token: False)
+    monkeypatch.setattr(session.api_client, "me", _raise_skip_api)
 
     assert session.token() == "access-from-redis"
     assert st.session_state["user"]["username"] == "alice"
@@ -92,10 +97,52 @@ def test_restore_refreshes_cached_user_from_redis(monkeypatch):
         else None,
     )
     monkeypatch.setattr(session, "_token_has_expired", lambda token: False)
+    monkeypatch.setattr(session.api_client, "me", _raise_skip_api)
 
     session._restore()
     assert st.session_state["access_token"] == "already-there"
     assert st.session_state["user"]["is_admin"] is True
+
+
+def test_current_user_refreshes_is_admin_from_api(monkeypatch):
+    st.session_state["access_token"] = "access-123"
+    st.session_state["user"] = {"username": "alice", "user_id": "u1", "is_admin": False}
+    captured = {}
+
+    monkeypatch.setattr(session.session_store, "enabled", lambda: True)
+    monkeypatch.setattr(session, "_token_has_expired", lambda token: False)
+    monkeypatch.setattr(session, "_restore", lambda: None)
+    monkeypatch.setattr(
+        session.api_client,
+        "me",
+        lambda token: {"username": "alice", "user_id": "u1", "is_admin": True},
+    )
+
+    cookies = Cookies({session.SESSION_COOKIE: "sid-1"})
+    monkeypatch.setattr(session, "_cookies", lambda: cookies)
+    monkeypatch.setattr(
+        session.session_store,
+        "load",
+        lambda session_id: {
+            "access_token": "access-123",
+            "refresh_token": "refresh-123",
+            "user": {"username": "alice", "user_id": "u1", "is_admin": False},
+            "remember_me": False,
+        },
+    )
+
+    def fake_save(session_id, access_token, user, ttl_seconds, refresh_token=None, remember_me=False):
+        captured["user"] = user
+        captured["session_id"] = session_id
+        return True
+
+    monkeypatch.setattr(session.session_store, "save", fake_save)
+
+    user = session.current_user()
+    assert user["is_admin"] is True
+    assert st.session_state["user"]["is_admin"] is True
+    assert captured["user"]["is_admin"] is True
+    assert captured["session_id"] == "sid-1"
 
 
 def test_token_refreshes_expired_access_token(monkeypatch):

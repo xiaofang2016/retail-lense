@@ -37,13 +37,29 @@ exec /usr/bin/ssh \
 WRAP
 chmod +x "${WRAP_DIR}/ssh"
 
-PATH="${WRAP_DIR}:${PATH}" \
-  aws ec2-instance-connect ssh \
-    --instance-id "${INSTANCE_ID}" \
-    --os-user "${OS_USER}" \
-    --connection-type eice \
-    --eice-options "endpointId=${EICE_ENDPOINT_ID}" \
-    --region "${REGION}" <<EOF
+# 1A sometimes kills AuthorizedKeysCommand after ~5s (sshd status 124) before
+# IMDS returns the just-pushed key. Client then sees Permission denied.
+# A new SendSSHPublicKey + SSH usually works; 1C is typically faster.
+SSH_ATTEMPTS="${SSH_ATTEMPTS:-3}"
+attempt=1
+while [ "${attempt}" -le "${SSH_ATTEMPTS}" ]; do
+  if PATH="${WRAP_DIR}:${PATH}" \
+    aws ec2-instance-connect ssh \
+      --instance-id "${INSTANCE_ID}" \
+      --os-user "${OS_USER}" \
+      --connection-type eice \
+      --eice-options "endpointId=${EICE_ENDPOINT_ID}" \
+      --region "${REGION}" <<EOF
 set -euo pipefail
 ${REMOTE_CMD}
 EOF
+  then
+    exit 0
+  fi
+  echo "Instance Connect SSH failed (attempt ${attempt}/${SSH_ATTEMPTS})." >&2
+  if [ "${attempt}" -eq "${SSH_ATTEMPTS}" ]; then
+    exit 1
+  fi
+  sleep 3
+  attempt=$((attempt + 1))
+done
