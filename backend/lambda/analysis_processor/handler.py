@@ -8,7 +8,6 @@ comes from plain Lambda environment variables, not the shared Settings class.
 
 from __future__ import annotations
 
-import json
 import os
 from urllib.parse import unquote_plus
 
@@ -54,8 +53,15 @@ def handler(event: dict, _context: object = None) -> dict:
         if TOPIC_ARN:
             sns.publish(
                 TopicArn=TOPIC_ARN,
-                Message=json.dumps({"user_id": user_id, "analysis_id": analysis_id}),
-                Subject="Analysis complete",
+                Subject="Your Retail Lense analysis is ready",
+                Message=(
+                    f"Analysis {analysis_id} is complete. "
+                    "Open Retail Lense to view the report."
+                ),
+                MessageAttributes={
+                    "user_id": {"DataType": "String", "StringValue": user_id},
+                    "analysis_id": {"DataType": "String", "StringValue": analysis_id},
+                },
             )
 
     return {"status": "ok"}

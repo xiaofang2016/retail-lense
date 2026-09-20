@@ -7,7 +7,7 @@ import streamlit as st
 
 from components.style import setup
 from services import api_client, session
-from services.api_client import ApiError
+from services.api_client import ApiError, set_analysis_notifications
 
 setup("Account")
 
@@ -21,6 +21,31 @@ token = session.token() or ""
 user = session.current_user() or {}
 st.write(user.get("full_name") or "")
 st.caption(f"{user.get('username', '')} · {user.get('email', '')}")
+
+st.divider()
+st.subheader("Analysis complete email")
+st.caption(
+    "AWS emails a confirmation link first. After you confirm, this address "
+    "receives a message when your analysis report is ready."
+)
+if user.get("notify_email"):
+    if st.session_state.pop("notify_email_just_on", False):
+        st.success("Check that inbox for an AWS SNS confirmation email.")
+    st.write(f"On for {user.get('email')}.")
+    if st.button("Turn off email notifications"):
+        try:
+            st.session_state["user"] = set_analysis_notifications(token, False)
+            st.rerun()
+        except ApiError as exc:
+            st.error(exc.detail)
+else:
+    if st.button("Subscribe account email"):
+        try:
+            st.session_state["user"] = set_analysis_notifications(token, True)
+            st.session_state["notify_email_just_on"] = True
+            st.rerun()
+        except ApiError as exc:
+            st.error(exc.detail)
 
 st.divider()
 st.subheader("SMS two-factor")

@@ -177,6 +177,8 @@ class DynamoUserStore:
             phone_verified=bool(item.get("phone_verified")),
             two_factor_enabled=bool(item.get("two_factor_enabled")),
             is_admin=bool(item.get("is_admin")),
+            notify_email=bool(item.get("notify_email")),
+            sns_email_subscription_arn=str(item.get("sns_email_subscription_arn") or ""),
         )
 
     def get_by_id(self, user_id: str) -> UserRecord | None:
@@ -218,6 +220,8 @@ class DynamoUserStore:
             "phone_verified": bool(user.phone_verified),
             "two_factor_enabled": bool(user.two_factor_enabled),
             "is_admin": bool(user.is_admin),
+            "notify_email": bool(user.notify_email),
+            "sns_email_subscription_arn": user.sns_email_subscription_arn or "",
         }
         if user.locked_at:
             item["locked_at"] = user.locked_at.isoformat()

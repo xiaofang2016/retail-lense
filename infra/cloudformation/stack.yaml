@@ -309,8 +309,14 @@ Resources:
                 Resource: "*"
               - Sid: SnsAnalysisComplete
                 Effect: Allow
-                Action: sns:Publish
-                Resource: !Ref AnalysisCompleteTopic
+                Action:
+                  - sns:Publish
+                  - sns:Subscribe
+                  - sns:Unsubscribe
+                  - sns:SetSubscriptionAttributes
+                Resource:
+                  - !Ref AnalysisCompleteTopic
+                  - !Sub "${AnalysisCompleteTopic}:*"
               - Sid: ReadRuntimeSecrets
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue

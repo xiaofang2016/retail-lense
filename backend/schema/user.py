@@ -22,6 +22,7 @@ class UserOut(BaseModel):
     phone_hint: str = ""
     two_factor_enabled: bool = False
     is_admin: bool = False
+    notify_email: bool = False
 
     @classmethod
     def from_record(cls, user: "UserRecord") -> "UserOut":
@@ -35,6 +36,7 @@ class UserOut(BaseModel):
             phone_hint=mask_phone(user.phone) if enabled else "",
             two_factor_enabled=enabled,
             is_admin=bool(user.is_admin),
+            notify_email=bool(user.notify_email),
         )
 
 
@@ -45,6 +47,7 @@ class UserRecord(UserOut):
     blocked_ips: list[str] = Field(default_factory=list)
     phone: str = ""
     phone_verified: bool = False
+    sns_email_subscription_arn: str = ""
 
     @property
     def is_locked(self) -> bool:
@@ -53,6 +56,10 @@ class UserRecord(UserOut):
         locked_at = self.locked_at if self.locked_at.tzinfo else self.locked_at.replace(tzinfo=UTC)
         expires = locked_at + timedelta(hours=get_settings().security_user_lockout_hours)
         return expires > datetime.now(UTC)
+
+
+class AnalysisNotificationsIn(BaseModel):
+    email: bool
 
 
 class LoginEvent(BaseModel):

@@ -67,8 +67,16 @@
         {
             "Sid": "SnsAnalysisComplete",
             "Effect": "Allow",
-            "Action": "sns:Publish",
-            "Resource": "arn:aws:sns:us-east-1:817817875692:retaillen-analysis-complete"
+            "Action": [
+                "sns:Publish",
+                "sns:Subscribe",
+                "sns:Unsubscribe",
+                "sns:SetSubscriptionAttributes"
+            ],
+            "Resource": [
+                "arn:aws:sns:us-east-1:817817875692:retaillen-analysis-complete",
+                "arn:aws:sns:us-east-1:817817875692:retaillen-analysis-complete:*"
+            ]
         },
         {
             "Sid": "ReadRuntimeSecrets",

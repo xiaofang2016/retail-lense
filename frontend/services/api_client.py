@@ -177,6 +177,11 @@ def me(token: str) -> dict[str, Any]:
     return _request("GET", "/users/me", token=token)
 
 
+def set_analysis_notifications(token: str, email: bool) -> dict[str, Any]:
+    """Subscribe or unsubscribe the account email on the analysis-complete SNS topic."""
+    return _request("PUT", "/users/me/analysis-notifications", token=token, json={"email": email})
+
+
 def login_history(token: str, limit: int = 50) -> dict[str, Any]:
     return _request("GET", "/auth/login-history", token=token, params={"limit": limit})
 
