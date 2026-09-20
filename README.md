@@ -388,3 +388,8 @@ Public reference analysis uses the [UCI Online Retail](https://archive.ics.uci.e
 ## Conventions
 
 All comments, docstrings, README/docs Markdown, and inline notes in this repository must be written in English.
+
+
+ONLINE DEMO: www.retaillen.cloud
+
+
