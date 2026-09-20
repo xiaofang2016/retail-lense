@@ -124,6 +124,19 @@ def _load_jwt_secret(app_env: str, secret_name: str) -> str:
     return os.getenv("JWT_SECRET") or os.getenv("SECRET") or "local-dev-only-change-me"
 
 
+def _load_smtp_secret(env_key: str, settings: Settings) -> str:
+    value = os.getenv(env_key, "").strip()
+    if value:
+        return value
+    if settings.app_env != "aws" or not settings.smtp_enabled():
+        return ""
+    if (settings.smtp_auth_strategy or "TLS").upper() == "NONE":
+        return ""
+    from services.secrets import get_secret
+
+    return get_secret(f"retaillen/{env_key}", field=env_key)
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     settings = Settings()
@@ -183,7 +196,7 @@ def get_settings() -> Settings:
     settings.smtp_port = _int("SMTP_PORT", 587)
     settings.smtp_from_name = os.getenv("SMTP_FROM_NAME", "Retail Lense")
     settings.smtp_from_email = os.getenv("SMTP_FROM_EMAIL", "")
-    settings.smtp_user = os.getenv("SMTP_USER", "")
-    settings.smtp_password = os.getenv("SMTP_PASSWORD", "")
     settings.smtp_auth_strategy = os.getenv("SMTP_AUTH_STRATEGY", "TLS")
+    settings.smtp_user = _load_smtp_secret("SMTP_USER", settings)
+    settings.smtp_password = _load_smtp_secret("SMTP_PASSWORD", settings)
     return settings

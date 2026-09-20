@@ -41,11 +41,18 @@ services:
       context: ./frontend
     # Do not use env_file: .env — that file holds AWS keys/profile for the API.
     environment:
+      APP_ENV: ${APP_ENV:-local}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
       # Same Compose network: http://backend:8000. Frontend-only EC2: set BACKEND_URL
       # in .env to the backend host or ALB (this line passes that value through).
       BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      # Local: values from .env. EC2 (APP_ENV=aws): leave these empty; Streamlit
+      # loads retaillen/AUTH_API_URL, retaillen/REDIS_URL, retaillen/REDIS_PASSWORD,
+      # retaillen/SESSION_COOKIE_PASSWORD from Secrets Manager.
       AUTH_API_URL: ${AUTH_API_URL:-}
       REDIS_URL: ${REDIS_URL:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       SESSION_COOKIE_PASSWORD: ${SESSION_COOKIE_PASSWORD:-}
       REMEMBER_ME_DAYS: ${REMEMBER_ME_DAYS:-14}
       TOKEN_TIME: ${TOKEN_TIME:-48}
@@ -68,31 +75,7 @@ services:
     ports:
       - "${LAMBDA_AUTH_PORT:-8502}:8080"
     volumes:
-      - ~/.aws:/root/.aws:ro  
-
-
-
-   
-  # Start this profile on exactly one EC2 instance. Both frontends must use
-  # that instance's private IP in REDIS_URL.
-  redis:
-    profiles:
-      - session-store
-    image: redis:7-alpine
-    restart: unless-stopped
-    environment:
-      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
-    command:
-      - sh
-      - -c
-      - >-
-        test -n "$$REDIS_PASSWORD" ||
-        { echo "REDIS_PASSWORD is required"; exit 1; };
-        exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
+      - ~/.aws:/root/.aws:ro
 
   # in case you want to use Mailpit for email testing, uncomment the following lines
   #mailpit:

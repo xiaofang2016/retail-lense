@@ -73,7 +73,11 @@
       "Action": "secretsmanager:GetSecretValue",
       "Resource": [
         "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/jwt-*",
-        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/openai-*"
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/openai-*",
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/REDIS_URL-*",
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/REDIS_PASSWORD-*",
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/SMTP_USER-*",
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/SMTP_PASSWORD-*"
       ]
     }
   ]

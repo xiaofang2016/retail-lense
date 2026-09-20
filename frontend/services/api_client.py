@@ -11,8 +11,19 @@ from uuid import uuid4
 import httpx
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-# Base Function URL for both /auth/signin and /auth/register. Empty = FastAPI.
-AUTH_API_URL = os.getenv("AUTH_API_URL", "").strip().rstrip("/")
+
+
+def auth_api_url() -> str:
+    """Lambda Function URL for sign-in/sign-up. Empty = FastAPI.
+
+    Read at call time so EC2 can inject AUTH_API_URL from Secrets Manager
+    after this module is imported.
+    """
+    return os.getenv("AUTH_API_URL", "").strip().rstrip("/")
+
+
+# Back-compat for tests/patches that still set the module attribute.
+AUTH_API_URL = auth_api_url()
 
 logger = logging.getLogger("retaillen.frontend.http")
 if not logger.handlers:
@@ -116,9 +127,10 @@ def register(email: str, username: str, full_name: str, password: str, password_
         "password": password,
         "password_confirm": password_confirm,
     }
-    if AUTH_API_URL:
+    lambda_url = auth_api_url() or AUTH_API_URL
+    if lambda_url:
         with httpx.Client(timeout=30.0) as client:
-            response = _send(client, "POST", f"{AUTH_API_URL}/auth/register", json=payload)
+            response = _send(client, "POST", f"{lambda_url}/auth/register", json=payload)
             if response.is_error:
                 raise ApiError(response.status_code, _detail(response))
             return response.json()
@@ -127,9 +139,10 @@ def register(email: str, username: str, full_name: str, password: str, password_
 
 def signin(username: str, password: str, remember_me: bool = False) -> dict[str, Any]:
     payload = {"username": username, "password": password, "remember_me": remember_me}
-    if AUTH_API_URL:
+    lambda_url = auth_api_url() or AUTH_API_URL
+    if lambda_url:
         with httpx.Client(timeout=30.0) as client:
-            response = _send(client, "POST", f"{AUTH_API_URL}/auth/signin", json=payload)
+            response = _send(client, "POST", f"{lambda_url}/auth/signin", json=payload)
             if response.is_error:
                 raise ApiError(response.status_code, _detail(response))
             return response.json()

@@ -128,6 +128,8 @@ SMTP_AUTH_STRATEGY=NONE
 
 Leave `SMTP_HOST` empty to keep the in-memory outbox (what the pytest suite uses).
 
+On EC2 with real SMTP (`SMTP_AUTH_STRATEGY` not `NONE`), leave `SMTP_USER` and `SMTP_PASSWORD` empty so backend reads `retaillen/SMTP_USER` and `retaillen/SMTP_PASSWORD`.
+
 #### 3. Check the inbox
 
 1. Open http://localhost:8025 — you should see an empty Mailpit inbox.
@@ -270,7 +272,7 @@ export AWS_PROFILE=mike-assume-infra AWS_REGION=us-east-1
 ./infra/scripts/deploy_signin_lambda.sh
 ```
 
-Set `JWT_SECRET_NAME=retaillen/jwt` on Lambda and backend EC2. Their execution roles need `secretsmanager:GetSecretValue` for that secret; do not put the secret value in an AWS environment variable. Put the Function URL base in `.env` as `AUTH_API_URL` and restart Streamlit. The same function handles `POST /auth/signin` and `POST /auth/register`. Leave it empty locally so auth stays on FastAPI. The function uses role `retaillen-signin-lambda`, not `AWS_PROFILE`. `GET /auth/login-history` stays on FastAPI.
+Set `JWT_SECRET_NAME=retaillen/jwt` on Lambda and backend EC2. Their execution roles need `secretsmanager:GetSecretValue` for that secret; do not put the secret value in an AWS environment variable. On EC2 leave `AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, and `SESSION_COOKIE_PASSWORD` out of `.env` — Streamlit reads Secrets Manager `retaillen/<ENV_VAR>` via instance role `retaillen-frontend-runtime`. Locally keep those four values in `.env` so a laptop `AWS_PROFILE` never fetches production secrets. The same Lambda handles `POST /auth/signin` and `POST /auth/register`. Leave `AUTH_API_URL` empty locally so auth stays on FastAPI. The function uses role `retaillen-signin-lambda`, not `AWS_PROFILE`. `GET /auth/login-history` stays on FastAPI.
 
 ## Production (EC2, Amazon Linux)
 
@@ -298,8 +300,8 @@ frontend/.venv/bin/pip install -r frontend/requirements.txt
 
 # Repo-root .env stays on the box only (APP_ENV=aws, empty DDB_ENDPOINT).
 # Backend EC2 uses instance role retaillen-backend-runtime (no AWS_PROFILE).
-# Frontend EC2: no instance role and no AWS keys.
-# edit .env: BASE_URL, SMTP, JWT_SECRET_NAME, AUTH_API_URL, ...
+# Frontend EC2: instance role retaillen-frontend-runtime only.
+# edit .env: BASE_URL, SMTP, JWT_SECRET_NAME; omit AUTH_API_URL / Redis / cookie secrets.
 
 sudo cp infra/systemd/retaillen-api.service infra/systemd/retaillen-ui.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -332,7 +334,7 @@ A merge into **`dev`** (or a direct push to `dev`) runs tests, then deploys only
 
 Backend and both frontend instances share `DEPLOY_EICE_ENDPOINT_ID`.
 
-On a frontend-only instance, set `BACKEND_URL` in `.env` to the backend host or ALB (not `http://backend:8000`). Do not attach an instance profile or put AWS keys on that host. Compose does not pass `AWS_*` into the Streamlit container. The frontend deploy uses `docker compose up --no-deps` so it does not start the API on that box.
+On a frontend-only instance, set `BACKEND_URL` in `.env` to the backend host or ALB (not `http://backend:8000`). Attach only `retaillen-frontend-runtime`. Omit `AUTH_API_URL` / `REDIS_URL` / `REDIS_PASSWORD` / `SESSION_COOKIE_PASSWORD` from `.env` so Streamlit reads `retaillen/<ENV_VAR>`. Compose does not pass `AWS_PROFILE` or access keys into the Streamlit container. The frontend deploy uses `docker compose up --no-deps` so it does not start the API on that box.
 
 Port **80** needs root (or `setcap`). Better: Streamlit on 8501, ALB/nginx on 80.
 
@@ -351,7 +353,7 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 | IAM | Least-privilege instance role and per-member roles |
 | CloudWatch | Logs, metrics, billing alarms |
 | SNS | SMS OTP + analysis-complete notifications |
-| Secrets Manager | JWT signing secret, OpenAI API key |
+| Secrets Manager | JWT, OpenAI, `retaillen/AUTH_API_URL`, Redis, session cookie |
 | SQS (optional) | Decouple upload from clustering on EC2 |
 | CloudFront (optional) | CDN in front of the ALB |
 
@@ -374,7 +376,7 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 - Every attempt is stored as login history with client IP (`X-Forwarded-For` when present).
 - An account owner can block an IP; later sign-ins from that IP to that account return 403.
 - Too many failures from one IP return 429.
-- Streamlit never talks to AWS directly — only to FastAPI.
+- Streamlit talks to FastAPI, Redis, and (on EC2 only) Secrets Manager `retaillen/<ENV_VAR>`.
 - Per-user S3 prefixes; results private to the owning account.
 - No secrets in git.
 

@@ -2,7 +2,10 @@
 # Deploy Streamlit with Docker Compose on the frontend EC2.
 # Uses --no-deps so this host does not start the backend service.
 # Point BACKEND_URL in .env at the backend EC2 / ALB (not http://backend:8000).
-# This host must not have an instance profile or AWS access keys.
+# APP_ENV=aws: leave AUTH_API_URL / REDIS_URL / REDIS_PASSWORD /
+# SESSION_COOKIE_PASSWORD empty. Streamlit reads retaillen/<ENV_VAR> from
+# Secrets Manager. Do not put AWS_PROFILE or access keys on this host.
+# Attach instance role retaillen-frontend-runtime only.
 set -euo pipefail
 
 ROOT="${APP_DIR:-/home/mike/retail-lense}"

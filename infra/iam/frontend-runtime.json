@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadFrontendRuntimeSecrets",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": [
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/AUTH_API_URL-*",
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/REDIS_URL-*",
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/REDIS_PASSWORD-*",
+        "arn:aws:secretsmanager:us-east-1:817817875692:secret:retaillen/SESSION_COOKIE_PASSWORD-*"
+      ]
+    }
+  ]
+}

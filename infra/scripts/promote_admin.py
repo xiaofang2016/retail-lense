@@ -5,7 +5,8 @@ Run this on the backend EC2. That instance profile
 (`retaillen-backend-runtime`) is attached to the box; boto3 picks it up from
 IMDS. There is no ~/.aws on that host and AWS_PROFILE must not be set.
 
-Frontend Streamlit EC2 has no instance role — do not run it there.
+Frontend Streamlit EC2 only has `retaillen-frontend-runtime` (Secrets Manager),
+not DynamoDB — do not run this there.
 
 Laptop: AWS_PROFILE names a profile in ~/.aws.
 
@@ -189,6 +190,34 @@ def _session_matches_user(saved: dict, user_id: str) -> bool:
     return str(user.get("user_id") or "") == str(user_id)
 
 
+def _load_redis_url_from_secrets() -> None:
+    if os.getenv("REDIS_URL", "").strip():
+        return
+    if (os.getenv("APP_ENV") or "").strip() != "aws":
+        return
+    _ensure_backend_path()
+    from core.aws import client as aws_client
+
+    name = "retaillen/REDIS_URL"
+    try:
+        response = aws_client("secretsmanager").get_secret_value(SecretId=name)
+    except Exception as exc:
+        print(f"could not load {name}: {exc}", file=sys.stderr)
+        return
+    value = (response.get("SecretString") or "").strip()
+    if not value:
+        print(f"Secret {name} is empty; Streamlit session cache not updated", file=sys.stderr)
+        return
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        value = str(payload.get("REDIS_URL") or "").strip()
+    if value:
+        os.environ["REDIS_URL"] = value
+
+
 def refresh_session_cache(user_id: str, is_admin: bool, *, dry_run: bool) -> int:
     """Patch is_admin on Redis Streamlit sessions for this user. Returns match count."""
     url = os.getenv("REDIS_URL", "").strip()
@@ -280,6 +309,7 @@ def main() -> int:
         )
         return 2
 
+    _load_redis_url_from_secrets()
     users = table()
     item = find_user(users, args.email, args.username)
     if not item:

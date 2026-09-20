@@ -1,7 +1,9 @@
 """Frontend services package bootstrap.
 
 Loads a small allowlist from repo-root .env for local Streamlit runs.
-AWS credentials and other backend secrets are never copied into this process.
+AWS_PROFILE and access keys are never copied into this process.
+On APP_ENV=aws, empty AUTH_API_URL / REDIS_URL / REDIS_PASSWORD /
+SESSION_COOKIE_PASSWORD are read from Secrets Manager as retaillen/<NAME>.
 """
 
 from __future__ import annotations
@@ -10,10 +12,12 @@ import os
 from pathlib import Path
 
 _FRONTEND_ENV_KEYS = {
+    "APP_ENV",
     "APP_LOG_LEVEL",
     "AUTH_API_URL",
     "BACKEND_URL",
     "FRONTEND_PORT",
+    "REDIS_PASSWORD",
     "REDIS_URL",
     "REMEMBER_ME_DAYS",
     "SESSION_COOKIE_PASSWORD",
@@ -39,6 +43,11 @@ def _load_repo_dotenv() -> None:
 
 
 _load_repo_dotenv()
+
+from .runtime_config import apply as _apply_frontend_secrets
+
+_apply_frontend_secrets()
+
 
 def _configure_logging() -> None:
     level_name = (os.getenv("APP_LOG_LEVEL", "INFO") or "INFO").upper()

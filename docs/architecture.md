@@ -2,7 +2,9 @@
 
 ```
 Users → (optional CloudFront) → ALB
-  Frontend EC2: Streamlit only. No instance role, no AWS credentials.
+  Frontend EC2: Streamlit. Instance role retaillen-frontend-runtime
+    → Secrets Manager retaillen/AUTH_API_URL, retaillen/REDIS_URL,
+      retaillen/REDIS_PASSWORD, retaillen/SESSION_COOKIE_PASSWORD
   Backend EC2: FastAPI + analysis workers, instance role retaillen-backend-runtime
   Auth: Streamlit → one Lambda Function URL → /auth/signin or /auth/register
     Lambda → DynamoDB (Users + LoginHistory PutItem)

@@ -56,7 +56,7 @@ export BACKEND_URL=http://localhost:8000
 
 UI: http://localhost:8501
 
-The API must be running separately (`./infra/scripts/run_api.sh` from the repo root). Streamlit does not use boto3. Sign-in and sign-up go to FastAPI unless `AUTH_API_URL` is set to the Lambda Function URL. Login history is always FastAPI `GET /auth/login-history`.
+The API must be running separately (`./infra/scripts/run_api.sh` from the repo root). Sign-in and sign-up go to FastAPI unless `AUTH_API_URL` is set to the Lambda Function URL. Login history is always FastAPI `GET /auth/login-history`. Locally put the real URL in `.env`. On EC2 leave `AUTH_API_URL` empty; Streamlit reads `retaillen/AUTH_API_URL` (and the Redis / cookie secrets the same way: `retaillen/<ENV_VAR>`).
 
 ## How a page is built
 
@@ -126,16 +126,9 @@ Streamlit process via `st.session_state` (not shared across instances). Both
 Streamlit instances that share sessions must use the same `REDIS_URL` and
 `SESSION_COOKIE_PASSWORD`.
 
-Run the Redis Compose profile on exactly one EC2 instance:
-
-```bash
-docker compose --profile session-store up -d redis
-```
-
-Set `REDIS_URL=redis://:password@<redis-private-ip>:6379/0` on both EC2
-instances, then recreate both frontend containers. Restrict security group
-port 6379 to the application EC2 security group. This single-host Redis
-design has no automatic failover.
+Point both Streamlit instances at the same Redis with `REDIS_URL` and
+`SESSION_COOKIE_PASSWORD` (on EC2 those come from Secrets Manager). Restrict
+security group port 6379 to the application hosts.
 
 ## Adding a new page
 
@@ -162,5 +155,6 @@ Do not add a `.html` file for a new screen.
 - Do put new API calls in `api_client.py`, not inside a page with raw `httpx`.
 - Do not create `index.html`, `app.js`, or a `static/` CSS tree for the main UI.
 - Do not call AWS (S3/DynamoDB) from Streamlit. The backend owns that.
-- Do not load AWS credentials into Streamlit (`AWS_PROFILE`, access keys, instance role).
+- Do not load `AWS_PROFILE` or access keys into Streamlit. EC2 may use instance role `retaillen-frontend-runtime` only to read `retaillen/AUTH_API_URL`, `retaillen/REDIS_URL`, `retaillen/REDIS_PASSWORD`, and `retaillen/SESSION_COOKIE_PASSWORD`.
+- Local `.env` must use real `AUTH_API_URL` / Redis values. Leave them empty on EC2.
 - Do not run the API with `frontend/.venv` — the `api` package lives under `backend/`.
