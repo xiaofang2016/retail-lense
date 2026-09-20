@@ -4,7 +4,7 @@ Create one IAM user/role per member with least privilege. Members may hold multi
 
 | Course role | Member (proposal) | AWS access needed |
 | --- | --- | --- |
-| Infrastructure & Deployment | Mike Xiao | EC2, ALB, CloudWatch billing, CloudFormation, sign-in Lambda CLI deploy (see `signin-lambda-deployer.json`) |
+| Infrastructure & Deployment | Mike Xiao | EC2, ALB, EICE, CloudWatch billing, sign-in Lambda CLI deploy (see `signin-lambda-deployer.json`) |
 | Authentication & Security | Farhan Hridoy | Secrets Manager, SNS, IAM policy review (attach the deployer policy to `mike`) |
 | Data & ML Pipeline | Tahreem Tahir | S3, DynamoDB, SQS |
 | LLM & reference analysis | Arya Dhuri | Secrets Manager (OpenAI), S3 reports |

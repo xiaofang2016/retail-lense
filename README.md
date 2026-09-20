@@ -7,7 +7,8 @@ Secure multi-user cloud app for small retailers: RFM + K-Means customer segmenta
 ```
 frontend/     Streamlit UI (accounts, reference analysis, upload, reports)
 backend/      FastAPI on EC2 + background workers + ML pipeline
-infra/        CloudFormation and deploy scripts
+infra/        IAM JSON, EICE/EC2 deploy scripts, systemd units,
+              documentation CloudFormation (do not apply to the live account)
 data/samples/ Tiny schema samples (not the full UCI dataset)
 docs/         Architecture notes
 ```
@@ -276,7 +277,7 @@ Set `JWT_SECRET_NAME=retaillen/jwt` on Lambda and backend EC2. Their execution r
 
 ## Production (EC2, Amazon Linux)
 
-CloudFormation (`infra/scripts/deploy.sh`) is still a stub. The SSH pipeline below is the **test environment**: a merge (push) to **`dev`** deploys immediately. No SSM.
+CloudFormation (`infra/cloudformation/stack.yaml`) documents the CLI-built layout and is **not** applied to this account. `infra/scripts/deploy.sh` exits without creating a stack. The SSH pipeline below is the **test environment**: a merge (push) to **`dev`** deploys the app. No SSM.
 
 ### One-time on the instance
 
