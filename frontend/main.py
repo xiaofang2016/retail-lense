@@ -3,9 +3,9 @@ import streamlit as st
 from services import session
 
 
-# Do not construct EncryptedCookieManager here. Custom components declared in the
-# router script (before st.navigation / set_page_config) often fail to load their
-# frontend assets. Pages mount the cookie iframe in setup().
+# Pages call session.prepare() from setup(). Do not restore sessions here:
+# main.py runs before st.navigation and cannot rerun the sidebar after a cookie
+# restore without racing the selected page.
 signed_in = bool(st.session_state.get("access_token"))
 
 

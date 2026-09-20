@@ -1,9 +1,16 @@
+import hashlib
+import hmac
+
+import pytest
 import streamlit as st
 
 from services import session
 
 
-def setup_function():
+@pytest.fixture(autouse=True)
+def _clear_streamlit_state():
+    st.session_state.clear()
+    yield
     st.session_state.clear()
 
 
@@ -11,26 +18,14 @@ def _raise_skip_api(_token):
     raise RuntimeError("skip api")
 
 
-class Cookies(dict):
-    def __init__(self, *args, ready=True, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._ready = ready
-        self.save_calls = 0
-
-    def ready(self):
-        return self._ready
-
-    def save(self):
-        self.save_calls += 1
-
-
 def test_save_login_persists_refresh_token(monkeypatch):
     captured = {}
-    cookies = Cookies()
+    writes = []
 
     monkeypatch.setattr(session.session_store, "enabled", lambda: True)
     monkeypatch.setattr(session.api_client, "me", lambda token: {"username": "alice"})
-    monkeypatch.setattr(session, "_cookies", lambda: cookies)
+    monkeypatch.setattr(session, "_write_browser_cookie", lambda *args, **kwargs: writes.append((args, kwargs)))
+    monkeypatch.setenv("SESSION_COOKIE_PASSWORD", "test-secret")
 
     def fake_save(session_id, access_token, user, ttl_seconds, refresh_token=None, remember_me=False):
         captured["session_id"] = session_id
@@ -49,16 +44,15 @@ def test_save_login_persists_refresh_token(monkeypatch):
     assert captured["refresh_token"] == "refresh-456"
     assert captured["remember_me"] is False
     assert st.session_state["refresh_token"] == "refresh-456"
-    assert cookies[session.SESSION_COOKIE] == captured["session_id"]
+    assert st.session_state["_session_id"] == captured["session_id"]
     assert st.session_state["_pending_session_id"] == captured["session_id"]
-    # save() would be aborted by switch_page; the next CookieManager run writes the queue.
-    assert cookies.save_calls == 0
+    # Cookie write would be aborted by switch_page; prepare() does it next run.
+    assert writes == []
 
 
 def test_restore_loads_session_from_cookie(monkeypatch):
-    cookies = Cookies({session.SESSION_COOKIE: "sid-1"})
     monkeypatch.setattr(session.session_store, "enabled", lambda: True)
-    monkeypatch.setattr(session, "_cookies", lambda: cookies)
+    monkeypatch.setattr(session, "_read_session_cookie", lambda: "sid-1")
     monkeypatch.setattr(
         session.session_store,
         "load",
@@ -77,14 +71,14 @@ def test_restore_loads_session_from_cookie(monkeypatch):
     assert session.token() == "access-from-redis"
     assert st.session_state["user"]["username"] == "alice"
     assert st.session_state["remember_me"] is True
+    assert st.session_state["_session_id"] == "sid-1"
 
 
 def test_restore_refreshes_cached_user_from_redis(monkeypatch):
     st.session_state["access_token"] = "already-there"
     st.session_state["user"] = {"username": "alice", "is_admin": False}
-    cookies = Cookies({session.SESSION_COOKIE: "sid-1"})
     monkeypatch.setattr(session.session_store, "enabled", lambda: True)
-    monkeypatch.setattr(session, "_cookies", lambda: cookies)
+    monkeypatch.setattr(session, "_read_session_cookie", lambda: "sid-1")
     monkeypatch.setattr(
         session.session_store,
         "load",
@@ -107,6 +101,7 @@ def test_restore_refreshes_cached_user_from_redis(monkeypatch):
 def test_current_user_refreshes_is_admin_from_api(monkeypatch):
     st.session_state["access_token"] = "access-123"
     st.session_state["user"] = {"username": "alice", "user_id": "u1", "is_admin": False}
+    st.session_state["_session_id"] = "sid-1"
     captured = {}
 
     monkeypatch.setattr(session.session_store, "enabled", lambda: True)
@@ -117,9 +112,6 @@ def test_current_user_refreshes_is_admin_from_api(monkeypatch):
         "me",
         lambda token: {"username": "alice", "user_id": "u1", "is_admin": True},
     )
-
-    cookies = Cookies({session.SESSION_COOKIE: "sid-1"})
-    monkeypatch.setattr(session, "_cookies", lambda: cookies)
     monkeypatch.setattr(
         session.session_store,
         "load",
@@ -162,82 +154,79 @@ def test_token_refreshes_expired_access_token(monkeypatch):
     assert st.session_state["refresh_token"] == "fresh-refresh"
 
 
-class _CookieRunCtx:
-    def __init__(self):
-        self.widget_user_keys_this_run = set()
+def test_session_cookie_roundtrip_hmac(monkeypatch):
+    monkeypatch.setenv("SESSION_COOKIE_PASSWORD", "test-secret")
+    signed = session._sign_session_id("sid-abc")
+    assert signed.startswith("sid-abc.")
+    assert session._unsign_session_id(signed) == "sid-abc"
+    tampered = signed[:-1] + ("0" if signed[-1] != "0" else "1")
+    assert session._unsign_session_id(tampered) is None
+    expected = hmac.new(b"test-secret", b"sid-abc", hashlib.sha256).hexdigest()
+    assert signed == f"sid-abc.{expected}"
 
 
-class _SharedCookieRunCtx:
-    def __init__(self):
-        self.shared = _CookieRunCtx()
-
-
-def _install_fake_cookie_manager(monkeypatch, ctx=None):
-    created = []
-    ctx = ctx or _CookieRunCtx()
-
-    def _keys():
-        keys = getattr(ctx, "widget_user_keys_this_run", None)
-        if keys is not None:
-            return keys
-        return ctx.shared.widget_user_keys_this_run
-
-    class FakeManager(dict):
-        def __init__(self):
-            super().__init__()
-            created.append(self)
-            _keys().add(session.COOKIE_COMPONENT_KEY)
-
-        def ready(self):
-            return True
-
+def test_prepare_reruns_after_cookie_restore(monkeypatch):
+    reruns = []
+    writes = []
     monkeypatch.setattr(session.session_store, "enabled", lambda: True)
-    monkeypatch.setattr(session, "_new_cookie_manager", FakeManager)
-    monkeypatch.setattr(session, "_script_run_ctx", lambda: ctx)
-    return created, ctx
+    monkeypatch.setenv("SESSION_COOKIE_PASSWORD", "test-secret")
+    monkeypatch.setattr(session, "_read_session_cookie", lambda: "sid-1")
+    monkeypatch.setattr(session, "_write_browser_cookie", lambda *args, **kwargs: writes.append(args))
+    monkeypatch.setattr(
+        session.session_store,
+        "load",
+        lambda session_id: {
+            "access_token": "access-from-redis",
+            "refresh_token": "refresh-from-redis",
+            "user": {"username": "alice"},
+            "remember_me": False,
+        }
+        if session_id == "sid-1"
+        else None,
+    )
+    monkeypatch.setattr(session, "_token_has_expired", lambda token: False)
+    monkeypatch.setattr(session.api_client, "me", _raise_skip_api)
+    monkeypatch.setattr(st, "rerun", lambda: reruns.append("rerun"))
 
-
-def test_cookie_manager_constructed_once_when_signed_in_then_prepare(monkeypatch):
-    created, _ctx = _install_fake_cookie_manager(monkeypatch)
-
-    assert session.signed_in() is False
-    session.prepare()
-    session.prepare()
-
-    assert len(created) == 1
-    assert st.session_state[session.COOKIE_MANAGER_STATE_KEY] is created[0]
-
-
-def test_cookie_manager_constructed_once_for_main_then_page_prepare(monkeypatch):
-    created, _ctx = _install_fake_cookie_manager(monkeypatch)
-
-    session.prepare(remount=True)
-    assert session.signed_in() is False
     session.prepare()
 
-    assert len(created) == 1
+    assert st.session_state["access_token"] == "access-from-redis"
+    assert st.session_state["_retaillen_nav_synced"] is True
+    assert reruns == ["rerun"]
+    assert writes == []
 
 
-def test_cookie_manager_reconstructed_on_new_script_run(monkeypatch):
-    created, ctx = _install_fake_cookie_manager(monkeypatch)
+def test_prepare_writes_pending_cookie_after_nav_is_synced(monkeypatch):
+    writes = []
+    monkeypatch.setattr(session.session_store, "enabled", lambda: True)
+    monkeypatch.setattr(session, "_restore", lambda: None)
+    monkeypatch.setattr(session, "_write_browser_cookie", lambda session_id, max_age=0: writes.append((session_id, max_age)))
+    st.session_state["access_token"] = "tok"
+    st.session_state["_retaillen_nav_synced"] = True
+    st.session_state["_pending_session_id"] = "sid-new"
+    st.session_state["_pending_session_ttl"] = 3600
 
-    session.prepare(remount=True)
-    assert len(created) == 1
-
-    ctx.widget_user_keys_this_run.clear()
-    session.prepare(remount=True)
-
-    assert len(created) == 2
-    assert st.session_state[session.COOKIE_MANAGER_STATE_KEY] is created[1]
-
-
-def test_cookie_manager_uses_shared_widget_keys(monkeypatch):
-    created, ctx = _install_fake_cookie_manager(monkeypatch, ctx=_SharedCookieRunCtx())
-
-    session.prepare(remount=True)
     session.prepare()
-    assert len(created) == 1
 
-    ctx.shared.widget_user_keys_this_run.clear()
-    session.prepare(remount=True)
-    assert len(created) == 2
+    assert writes == [("sid-new", 3600)]
+    assert "_pending_session_id" not in st.session_state
+
+
+def test_prepare_preserves_pending_cookie_when_nav_rerun_is_needed(monkeypatch):
+    writes = []
+    monkeypatch.setattr(session.session_store, "enabled", lambda: True)
+    monkeypatch.setattr(session, "_restore", lambda: None)
+    monkeypatch.setattr(session, "_write_browser_cookie", lambda *args, **kwargs: writes.append(args))
+    monkeypatch.setattr(st, "rerun", lambda: (_ for _ in ()).throw(RuntimeError("rerun")))
+    st.session_state["access_token"] = "tok"
+    st.session_state["_pending_session_id"] = "sid-new"
+    st.session_state["_pending_session_ttl"] = 99
+
+    try:
+        session.prepare()
+    except RuntimeError as exc:
+        assert str(exc) == "rerun"
+
+    assert writes == []
+    assert st.session_state["_pending_session_id"] == "sid-new"
+    assert st.session_state["_retaillen_nav_synced"] is True

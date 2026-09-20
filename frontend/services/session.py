@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -12,27 +14,15 @@ import time
 from typing import Any
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from services import api_client, session_store
 
 logger = logging.getLogger("retaillen.frontend.session")
 
 SESSION_COOKIE = "session_id"
-_COOKIE_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
-COOKIE_QUEUE_STATE_KEY = "CookieManager.queue"
-
-
-def _validate_cookie_prefix(prefix: str) -> str:
-    if not _COOKIE_NAME_RE.fullmatch(prefix):
-        raise RuntimeError(
-            f"Invalid cookie prefix {prefix!r}; browser cookie names cannot include '/', spaces, or other non-token characters."
-        )
-    return prefix
-
-
-COOKIE_PREFIX = _validate_cookie_prefix("retaillen_")
-COOKIE_MANAGER_STATE_KEY = "_retaillen_cookie_manager"
-COOKIE_COMPONENT_KEY = "CookieManager.sync_cookies"
+BROWSER_COOKIE_NAME = "retaillen_session_id"
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def cookies_enabled() -> bool:
@@ -40,149 +30,164 @@ def cookies_enabled() -> bool:
 
 
 def prepare(*, remount: bool = False) -> None:
-    """Mount the cookie component once per script run and restore Redis sessions.
+    """Restore Redis sessions and persist the session cookie if needed.
 
-    EncryptedCookieManager uses a fixed Streamlit key, so it must be constructed
-    only once per run. Call with remount=True from main.py so a new instance is
-    created on each rerun; reusing a cached manager across reruns leaves it
-    stuck as not-ready.
+    remount is accepted for call-site compatibility. Browser cookies are read
+    from the HTTP request (st.context.cookies), so there is no iframe to remount.
     """
+    del remount
     if not cookies_enabled():
         return
 
-    if remount and not _cookie_manager_mounted_this_run():
-        st.session_state.pop(COOKIE_MANAGER_STATE_KEY, None)
-
-    cookies = _cookies()
-    if not cookies.ready():
-        # Do not st.rerun() here: that aborts the cookie component before it
-        # can report document.cookie. The component triggers a rerun itself.
-        st.stop()
-
-    _flush_pending_session_cookie()
-    _flush_pending_login()
+    _restore()
 
     # main.py reads access_token before pg.run(); refresh nav after a cookie restore.
     if st.session_state.get("access_token") and not st.session_state.get("_retaillen_nav_synced"):
         st.session_state["_retaillen_nav_synced"] = True
         st.rerun()
 
-
-def _script_run_ctx():
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-    except ImportError:
-        try:
-            from streamlit.runtime.scriptrunner_utils.script_run_context import (
-                get_script_run_ctx,
-            )
-        except ImportError:
-            return None
-    return get_script_run_ctx()
+    # Write after any rerun above so switch_page/rerun cannot abort the iframe.
+    _flush_pending_session_cookie()
 
 
-def _widget_user_keys_this_run():
-    ctx = _script_run_ctx()
-    if ctx is None:
-        return None
-    keys = getattr(ctx, "widget_user_keys_this_run", None)
-    if keys is not None:
-        return keys
-    shared = getattr(ctx, "shared", None)
-    if shared is None:
-        return None
-    return getattr(shared, "widget_user_keys_this_run", None)
-
-
-def _cookie_manager_mounted_this_run() -> bool:
-    user_keys = _widget_user_keys_this_run()
-    if user_keys is None:
-        return False
-    try:
-        return COOKIE_COMPONENT_KEY in user_keys
-    except TypeError:
-        return False
-
-
-def _cached_cookie_manager():
-    cached = st.session_state.get(COOKIE_MANAGER_STATE_KEY)
-    if isinstance(cached, tuple) and len(cached) == 2:
-        return cached[1]
-    return cached
-
-
-def _new_cookie_manager():
+def _cookie_password() -> str:
     password = os.getenv("SESSION_COOKIE_PASSWORD", "").strip()
     if not password:
         raise RuntimeError("SESSION_COOKIE_PASSWORD is required when REDIS_URL is configured")
-    from streamlit_cookies_manager import EncryptedCookieManager
+    return password
 
-    return EncryptedCookieManager(
-        prefix=COOKIE_PREFIX,
-        password=password,
+
+def _sign_session_id(session_id: str) -> str:
+    digest = hmac.new(
+        _cookie_password().encode("utf-8"),
+        session_id.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{session_id}.{digest}"
+
+
+def _unsign_session_id(raw: str) -> str | None:
+    if not raw or "." not in raw:
+        return None
+    session_id, digest = raw.rsplit(".", 1)
+    if not _SESSION_ID_RE.fullmatch(session_id) or not digest:
+        return None
+    expected = hmac.new(
+        _cookie_password().encode("utf-8"),
+        session_id.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(digest, expected):
+        return None
+    return session_id
+
+
+def _browser_cookies() -> dict[str, str]:
+    try:
+        cookies = st.context.cookies
+    except Exception:
+        return {}
+    if cookies is None:
+        return {}
+    try:
+        if hasattr(cookies, "to_dict"):
+            data = cookies.to_dict()
+        else:
+            data = dict(cookies)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(key): str(value) for key, value in data.items() if value is not None}
+
+
+def _read_session_cookie() -> str | None:
+    try:
+        return _unsign_session_id(_browser_cookies().get(BROWSER_COOKIE_NAME, ""))
+    except RuntimeError:
+        return None
+
+
+def _cookie_secure() -> bool:
+    url = str(getattr(st.context, "url", "") or "")
+    if url.startswith("https://"):
+        return True
+    try:
+        headers = st.context.headers
+    except Exception:
+        return False
+    proto = ""
+    if headers is not None:
+        proto = str(headers.get("X-Forwarded-Proto") or headers.get("x-forwarded-proto") or "")
+    return proto.split(",", 1)[0].strip().lower() == "https"
+
+
+def _write_browser_cookie(session_id: str | None, max_age: int = 0) -> None:
+    if session_id is None:
+        assignment = f"{BROWSER_COOKIE_NAME}=; path=/; max-age=0"
+    else:
+        if not _SESSION_ID_RE.fullmatch(session_id):
+            logger.warning("refusing to write invalid session id")
+            return
+        flags = f"path=/; max-age={int(max_age)}; SameSite=Lax"
+        if _cookie_secure():
+            flags += "; Secure"
+        assignment = f"{BROWSER_COOKIE_NAME}={_sign_session_id(session_id)}; {flags}"
+    if any(char in assignment for char in '"<>\\\n\r'):
+        logger.warning("refusing to write unsafe cookie assignment")
+        return
+    components.html(
+        f"<script>document.cookie = {assignment!r};</script>",
+        height=0,
+        scrolling=False,
     )
 
 
-def _cookies():
-    cached = _cached_cookie_manager()
-    if cached is not None:
-        if _cookie_manager_mounted_this_run() or _widget_user_keys_this_run() is None:
-            return cached
-
-    manager = _new_cookie_manager()
-    st.session_state[COOKIE_MANAGER_STATE_KEY] = manager
-    return manager
-
-
-def _cookie_session_id(cookies) -> str | None:
-    try:
-        session_id = cookies.get(SESSION_COOKIE)
-    except Exception:
-        return None
-    return session_id or None
+def _active_session_id() -> str | None:
+    pending = st.session_state.get("_pending_session_id")
+    if pending:
+        return pending
+    stored = st.session_state.get("_session_id")
+    if stored:
+        return stored
+    return _read_session_cookie()
 
 
 def _queue_session_cookie(session_id: str) -> None:
-    cookies = _cookies()
-    cookies[SESSION_COOKIE] = session_id
+    st.session_state["_session_id"] = session_id
     st.session_state["_pending_session_id"] = session_id
-    # Do not call cookies.save() here. save() uses a second component that
-    # never runs if this script then switch_page/rerun. CookieManager.__init__
-    # on the next run sends CookieManager.queue to the main component, which
-    # writes document.cookie.
+    st.session_state["_pending_session_ttl"] = _session_ttl(bool(st.session_state.get("remember_me")))
+    st.session_state.pop("_pending_session_delete", None)
+    # Do not write the cookie here. components.html never runs if this script
+    # then switch_page/rerun. prepare() writes it on the next run instead.
 
 
 def _queue_session_cookie_delete() -> None:
-    """Queue a delete. CookieManager.__delitem__ ignores prefixed cookie names."""
-    queue = st.session_state.setdefault(COOKIE_QUEUE_STATE_KEY, {})
-    if isinstance(queue, dict):
-        queue[SESSION_COOKIE] = {"value": None, "path": "/"}
+    st.session_state["_pending_session_delete"] = True
     st.session_state.pop("_pending_session_id", None)
+    st.session_state.pop("_pending_session_ttl", None)
+    st.session_state.pop("_session_id", None)
 
 
 def _flush_pending_session_cookie() -> None:
+    if st.session_state.get("_pending_session_delete"):
+        _write_browser_cookie(None)
+        st.session_state.pop("_pending_session_delete", None)
+        return
     pending_session_id = st.session_state.get("_pending_session_id")
     if not pending_session_id:
         return
-    cookies = _cookies()
-    if not cookies.ready():
-        return
-    cookies[SESSION_COOKIE] = pending_session_id
-    if _cookie_session_id(cookies) == pending_session_id:
-        st.session_state.pop("_pending_session_id", None)
+    max_age = int(st.session_state.get("_pending_session_ttl") or _session_ttl(False))
+    _write_browser_cookie(pending_session_id, max_age=max_age)
+    st.session_state.pop("_pending_session_id", None)
+    st.session_state.pop("_pending_session_ttl", None)
 
 
 def _restore() -> None:
-    if cookies_enabled():
-        _flush_pending_session_cookie()
     if not cookies_enabled():
         return
 
-    cookies = _cookies()
-    if not cookies.ready():
-        return
-
-    session_id = _cookie_session_id(cookies)
+    session_id = _read_session_cookie()
     if not session_id:
         return
 
@@ -193,6 +198,7 @@ def _restore() -> None:
         _queue_session_cookie_delete()
         return
 
+    st.session_state["_session_id"] = session_id
     if not st.session_state.get("access_token"):
         st.session_state["access_token"] = saved["access_token"]
         st.session_state["refresh_token"] = saved.get("refresh_token")
@@ -263,10 +269,7 @@ def _refresh_user_from_api() -> None:
     st.session_state["user"] = user
     if previous == user or not cookies_enabled():
         return
-    cookies = _cookies()
-    if not cookies.ready():
-        return
-    session_id = _cookie_session_id(cookies)
+    session_id = _active_session_id()
     if not session_id:
         return
     saved = session_store.load(session_id) or {}
@@ -287,13 +290,11 @@ def token() -> str | None:
     if access_token and _token_has_expired(access_token):
         if not refresh_token_value:
             if cookies_enabled():
-                cookies = _cookies()
-                if cookies.ready():
-                    session_id = _cookie_session_id(cookies)
-                    if session_id:
-                        saved = session_store.load(session_id)
-                        if saved:
-                            refresh_token_value = saved.get("refresh_token")
+                session_id = _active_session_id()
+                if session_id:
+                    saved = session_store.load(session_id)
+                    if saved:
+                        refresh_token_value = saved.get("refresh_token")
             if not refresh_token_value:
                 sign_out()
                 return None
@@ -314,19 +315,17 @@ def token() -> str | None:
         st.session_state["refresh_token"] = new_refresh_token
 
         if cookies_enabled():
-            cookies = _cookies()
-            if cookies.ready():
-                session_id = _cookie_session_id(cookies)
-                if session_id:
-                    saved = session_store.load(session_id) or {}
-                    session_store.save(
-                        session_id,
-                        new_access_token,
-                        saved.get("user") or st.session_state.get("user") or {},
-                        ttl_seconds=_session_ttl(bool(saved.get("remember_me") or st.session_state.get("remember_me"))),
-                        refresh_token=new_refresh_token,
-                        remember_me=bool(saved.get("remember_me") or st.session_state.get("remember_me")),
-                    )
+            session_id = _active_session_id()
+            if session_id:
+                saved = session_store.load(session_id) or {}
+                session_store.save(
+                    session_id,
+                    new_access_token,
+                    saved.get("user") or st.session_state.get("user") or {},
+                    ttl_seconds=_session_ttl(bool(saved.get("remember_me") or st.session_state.get("remember_me"))),
+                    refresh_token=new_refresh_token,
+                    remember_me=bool(saved.get("remember_me") or st.session_state.get("remember_me")),
+                )
 
         return new_access_token
     return access_token
@@ -356,16 +355,6 @@ def save_login(
     st.session_state["user"] = user
 
     if cookies_enabled():
-        cookies = _cookies()
-        if not cookies.ready():
-            st.session_state["_pending_login"] = {
-                "access_token": access_token,
-                "remember_me": remember_me,
-                "refresh_token": refresh_token_value,
-            }
-            logger.info("save_login: cookies not ready, queued pending login for the next rerun")
-            return user
-
         session_id = secrets.token_urlsafe(32)
         if not session_store.save(
             session_id,
@@ -377,31 +366,17 @@ def save_login(
         ):
             return user
         _queue_session_cookie(session_id)
-        logger.info("save_login: queued encrypted session cookie for the next cookie-manager run")
+        logger.info("save_login: queued signed session cookie for the next page run")
     return user
-
-
-def _flush_pending_login() -> None:
-    pending = st.session_state.get("_pending_login")
-    if not isinstance(pending, dict) or not pending.get("access_token"):
-        return
-    st.session_state.pop("_pending_login", None)
-    save_login(
-        pending["access_token"],
-        remember_me=bool(pending.get("remember_me")),
-        refresh_token_value=pending.get("refresh_token"),
-    )
 
 
 def sign_out() -> None:
     try:
         if cookies_enabled():
-            cookies = _cookies()
-            if cookies.ready():
-                session_id = _cookie_session_id(cookies)
-                if session_id:
-                    session_store.delete(session_id)
-                _queue_session_cookie_delete()
+            session_id = _active_session_id()
+            if session_id:
+                session_store.delete(session_id)
+            _queue_session_cookie_delete()
     finally:
         st.session_state.pop("access_token", None)
         st.session_state.pop("refresh_token", None)
@@ -409,5 +384,7 @@ def sign_out() -> None:
         st.session_state.pop("user", None)
         st.session_state.pop("_pending_login", None)
         st.session_state.pop("_pending_session_id", None)
+        st.session_state.pop("_pending_session_ttl", None)
+        st.session_state.pop("_session_id", None)
         st.session_state.pop("_retaillen_nav_synced", None)
         st.session_state.pop("_user_refreshed_at", None)

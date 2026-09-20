@@ -14,7 +14,8 @@ headless = true
 address = "0.0.0.0"
 port = 8501
 # Required when the app is opened via EC2 IP, hostname, or ALB. The default
-# CORS policy blocks custom-component iframes (cookie manager).
+# CORS/XSRF policy blocks file uploads and any remaining component iframes.
 enableCORS = false
+enableXsrfProtection = false
 
 maxUploadSize = 30
