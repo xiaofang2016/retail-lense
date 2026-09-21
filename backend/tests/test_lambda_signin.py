@@ -106,3 +106,18 @@ def test_lambda_register_conflict(client):
 def test_lambda_unknown_path():
     response = lambda_handler(_event({}, path="/unknown"), None)
     assert response["statusCode"] == 404
+
+
+def test_lambda_signin_prefers_x_forwarded_for(client):
+    payload, _ = _register(client, "lamxff")
+    event = _event({"username": payload["username"], "password": payload["password"]}, ip="10.0.1.4")
+    event["headers"]["x-forwarded-for"] = "198.51.100.20, 10.0.1.4"
+    response = lambda_handler(event, None)
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    history = client.get(
+        "/auth/login-history",
+        headers={"Authorization": f"Bearer {body['access_token']}"},
+        params={"limit": 1},
+    )
+    assert history.json()["items"][0]["ip"] == "198.51.100.20"

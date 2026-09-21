@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import time
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 import httpx
 
+from services.client_ip import browser_ip, browser_user_agent
+
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1"}
 
 
 def auth_api_url() -> str:
@@ -32,6 +38,41 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
+
+
+def _in_docker() -> bool:
+    return Path("/.dockerenv").exists()
+
+
+def backend_url() -> str:
+    """Read BACKEND_URL on each request (not at import).
+
+    Compose interpolates the host .env. `http://localhost:8000` inside a
+    container is this process, not FastAPI. `http://backend:8000` only
+    resolves when the API service is on the same Compose network.
+    """
+    raw = (os.getenv("BACKEND_URL") or BACKEND_URL or "http://localhost:8000").strip()
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if _in_docker() and host in _LOOPBACK_HOSTS:
+        netloc = f"host.docker.internal:{parsed.port}" if parsed.port else "host.docker.internal"
+        raw = urlunparse(parsed._replace(netloc=netloc))
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").lower()
+        logger.info("rewrote loopback BACKEND_URL to %s", raw)
+    if host:
+        try:
+            socket.getaddrinfo(host, parsed.port or 80)
+        except socket.gaierror as exc:
+            raise ApiError(
+                503,
+                f"Cannot resolve API host {host!r} from BACKEND_URL={raw}. "
+                "On a frontend-only EC2 set BACKEND_URL to the backend private IP "
+                "(e.g. http://172.31.37.113:8000), then "
+                "docker compose up -d --force-recreate --no-deps frontend. "
+                "On a laptop Compose stack use BACKEND_URL=http://backend:8000.",
+            ) from exc
+    return raw
 
 
 class ApiError(Exception):
@@ -62,18 +103,40 @@ def _client(token: str | None = None) -> httpx.Client:
     headers = {}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return httpx.Client(base_url=BACKEND_URL, timeout=30.0, headers=headers)
+    return httpx.Client(base_url=backend_url(), timeout=30.0, headers=headers)
 
 
 def _send(client: httpx.Client, method: str, url: str, **kwargs) -> httpx.Response:
     request_id = uuid4().hex[:12]
     request = client.build_request(method, url, **kwargs)
     request.headers["x-request-id"] = request_id
+    # Streamlit→API is a new TCP connection; without this, FastAPI/Lambda see the
+    # frontend private IP and per-account IP blocks never match the browser.
+    client_ip = browser_ip()
+    if client_ip:
+        request.headers["x-forwarded-for"] = client_ip
+    user_agent = browser_user_agent()
+    if user_agent:
+        request.headers["user-agent"] = user_agent
     safe_url = str(request.url).split("?", 1)[0]
     started = time.monotonic()
     logger.info("request_id=%s method=%s url=%s event=request_started", request_id, method.upper(), safe_url)
     try:
         response = client.send(request)
+    except httpx.RequestError as exc:
+        elapsed_ms = round((time.monotonic() - started) * 1000)
+        logger.error(
+            "request_id=%s method=%s url=%s duration_ms=%s error_type=%s event=request_failed",
+            request_id,
+            method.upper(),
+            safe_url,
+            elapsed_ms,
+            type(exc).__name__,
+        )
+        raise ApiError(
+            503,
+            f"Cannot reach API at {safe_url}. Check BACKEND_URL and that FastAPI is running.",
+        ) from exc
     except Exception as exc:
         elapsed_ms = round((time.monotonic() - started) * 1000)
         logger.error(
