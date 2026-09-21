@@ -4,10 +4,14 @@ from services import api_client
 from services.client_ip import pick_client_ip
 
 
-def test_pick_client_ip_uses_alb_appended_hop():
+def test_pick_client_ip_uses_leftmost_public_hop():
     assert pick_client_ip("203.0.113.9") == "203.0.113.9"
-    # Client-supplied spoof on the left; ALB appends the real peer on the right.
-    assert pick_client_ip("1.2.3.4, 8.8.8.8") == "8.8.8.8"
+    # CloudFront / ALB append their own address on the right (e.g. 15.158.x).
+    assert pick_client_ip("8.8.8.8, 15.158.222.198") == "8.8.8.8"
+
+
+def test_pick_client_ip_prefers_cloudfront_viewer_address():
+    assert pick_client_ip("15.158.222.198", viewer_address="8.8.8.8:443") == "8.8.8.8"
 
 
 def test_pick_client_ip_falls_back_to_private_when_local():
@@ -20,6 +24,7 @@ def test_send_sets_x_forwarded_for(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured["xff"] = request.headers.get("x-forwarded-for", "")
+        captured["client"] = request.headers.get("x-retaillen-client-ip", "")
         captured["ua"] = request.headers.get("user-agent", "")
         return httpx.Response(200, json={"ok": True})
 
@@ -29,4 +34,5 @@ def test_send_sets_x_forwarded_for(monkeypatch):
     with httpx.Client(transport=transport, base_url="http://backend") as client:
         api_client._send(client, "GET", "/health")
     assert captured["xff"] == "203.0.113.9"
+    assert captured["client"] == "203.0.113.9"
     assert captured["ua"] == "Mozilla/5.0"

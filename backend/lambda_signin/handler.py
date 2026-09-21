@@ -50,6 +50,10 @@ def _headers(event: dict[str, Any]) -> dict[str, str]:
 
 def caller_ip(event: dict[str, Any]) -> str:
     headers = _headers(event)
+    # Function URL CloudFront rewrites X-Forwarded-For to the Streamlit host.
+    custom = (headers.get("x-retaillen-client-ip") or "").split(",")[0].strip()
+    if custom:
+        return custom
     forwarded = headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip() or "unknown"

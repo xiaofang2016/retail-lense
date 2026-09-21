@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import httpx
 
-from services.client_ip import browser_ip, browser_user_agent
+from services.client_ip import CLIENT_IP_HEADER, browser_ip, browser_user_agent
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1"}
@@ -115,6 +115,7 @@ def _send(client: httpx.Client, method: str, url: str, **kwargs) -> httpx.Respon
     client_ip = browser_ip()
     if client_ip:
         request.headers["x-forwarded-for"] = client_ip
+        request.headers[CLIENT_IP_HEADER] = client_ip
     user_agent = browser_user_agent()
     if user_agent:
         request.headers["user-agent"] = user_agent

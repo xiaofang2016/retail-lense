@@ -108,6 +108,22 @@ def test_lambda_unknown_path():
     assert response["statusCode"] == 404
 
 
+def test_lambda_signin_prefers_streamlit_client_ip_header(client):
+    payload, _ = _register(client, "lamcf")
+    event = _event({"username": payload["username"], "password": payload["password"]}, ip="15.158.222.198")
+    event["headers"]["x-forwarded-for"] = "15.158.222.198"
+    event["headers"]["x-retaillen-client-ip"] = "198.51.100.20"
+    response = lambda_handler(event, None)
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    history = client.get(
+        "/auth/login-history",
+        headers={"Authorization": f"Bearer {body['access_token']}"},
+        params={"limit": 1},
+    )
+    assert history.json()["items"][0]["ip"] == "198.51.100.20"
+
+
 def test_lambda_signin_prefers_x_forwarded_for(client):
     payload, _ = _register(client, "lamxff")
     event = _event({"username": payload["username"], "password": payload["password"]}, ip="10.0.1.4")
