@@ -1,5 +1,6 @@
 services:
   backend:
+    container_name: backend_container
     build:
       context: ./backend
     env_file:
@@ -16,9 +17,19 @@ services:
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
-      - ~/.aws:/root/.aws:ro
+    # - ~/.aws:/root/.aws:ro
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-us-east-1}
+        awslogs-group: /retaillen/backend
+        awslogs-create-group: "true"
+        tag: "{{.Name}}"
+        mode: non-blocking
+        max-buffer-size: "4m"
 
   worker:
+    container_name: worker_container
     build:
       context: ./backend
     env_file:
@@ -31,12 +42,21 @@ services:
     command: python -m workers.clustering
     volumes:
       - ./backend:/app
-      - ~/.aws:/root/.aws:ro
+   #  - ~/.aws:/root/.aws:ro
     depends_on:
       - backend
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-us-east-1}
+        awslogs-group: /retaillen/worker
+        awslogs-create-group: "true"
+        tag: "{{.Name}}"
+        mode: non-blocking
+        max-buffer-size: "4m"
 
-  
   frontend:
+    container_name: frontend_container
     build:
       context: ./frontend
     # Do not use env_file: .env — that file holds AWS keys/profile for the API.
@@ -59,23 +79,32 @@ services:
       APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
     ports:
       - "${FRONTEND_PORT:-8501}:8501"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./frontend:/app
-      
-  lambda-signin:
-    build:
-      context: ./backend
-      dockerfile: lambda_signin/Dockerfile  
-    env_file:
-      - .env
-    environment:
-      AWS_DEFAULT_REGION: us-east-1
-      LOG_LEVEL: INFO
-      PYTHONUNBUFFERED: "1"
-    ports:
-      - "${LAMBDA_AUTH_PORT:-8502}:8080"
-    volumes:
-      - ~/.aws:/root/.aws:ro
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-us-east-1}
+        awslogs-group: /retaillen/frontend
+        awslogs-create-group: "true"
+        tag: "{{.Name}}/{{.ID}}"
+
+#  lambda-signin:
+#  build:
+#    context: ./backend
+#    dockerfile: lambda_signin/Dockerfile  
+#  env_file:
+#    - .env
+#  environment:
+#    AWS_DEFAULT_REGION: us-east-1
+#    LOG_LEVEL: INFO
+#    PYTHONUNBUFFERED: "1"
+#  ports:
+#    - "${LAMBDA_AUTH_PORT:-8502}:8080"
+#  volumes:
+#    - ~/.aws:/root/.aws:ro
 
   # in case you want to use Mailpit for email testing, uncomment the following lines
   #mailpit:
