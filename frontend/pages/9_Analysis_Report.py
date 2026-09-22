@@ -36,6 +36,9 @@ if not analysis_id:
     st.warning("Please select an analysis from the Analysis Library.")
 
     if st.button("Go to Analysis Library"):
+        st.session_state.pop("analysis_id", None)
+        st.session_state.pop("selected_analysis", None)
+        st.query_params.clear()
         st.switch_page("pages/8_Analysis_Library.py")
 
     st.stop()
@@ -51,6 +54,9 @@ back_col, _ = st.columns([1, 5])
 
 with back_col:
     if st.button("← Back to Analysis Library"):
+        st.session_state.pop("analysis_id", None)
+        st.session_state.pop("selected_analysis", None)
+        st.query_params.clear()
         st.switch_page("pages/8_Analysis_Library.py")
 
 

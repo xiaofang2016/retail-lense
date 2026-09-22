@@ -58,7 +58,7 @@ col1, col2 = st.columns(2)
 
 with col1:
 
-    st.markdown("### 📊 Data & Machine Learning")
+    st.markdown("### Data & Machine Learning")
 
     st.write(
         "Transaction data is processed through a structured "
@@ -69,7 +69,7 @@ with col1:
 
 with col2:
 
-    st.markdown("### ✨ AI-Powered Advice")
+    st.markdown("### AI-Powered Advice")
 
     st.write(
         "Key analytical results and numerical insights are used "
@@ -98,7 +98,7 @@ team_col1, team_col2, team_col3 = st.columns(3)
 
 with team_col1:
 
-    st.markdown("### 👤 Team Member 1")
+    st.markdown("### Xiao Yuqun")
 
     st.markdown("**Infrastructure**")
 
@@ -110,7 +110,7 @@ with team_col1:
 
 with team_col2:
 
-    st.markdown("### 👤 Team Member 2")
+    st.markdown("### SM Farhan")
 
     st.markdown("**Infrastructure Security**")
 
@@ -122,7 +122,7 @@ with team_col2:
 
 with team_col3:
 
-    st.markdown("### 👤 Team Member 3")
+    st.markdown("### Tahreem Tahir")
 
     st.markdown("**ML Developer**")
 
@@ -137,7 +137,7 @@ team_col4, team_col5 = st.columns(2)
 
 with team_col4:
 
-    st.markdown("### 👤 Team Member 4")
+    st.markdown("### Arya Dhuri")
 
     st.markdown("**Backend Developer**")
 
@@ -149,7 +149,7 @@ with team_col4:
 
 with team_col5:
 
-    st.markdown("### 👤 Team Member 5")
+    st.markdown("### Ei Thae Thae Naing")
 
     st.markdown("**Frontend Developer**")
 
@@ -179,7 +179,7 @@ tech_col1, tech_col2, tech_col3 = st.columns(3)
 
 with tech_col1:
 
-    st.markdown("### 🖥️ Application")
+    st.markdown("### Application")
 
     st.write(
         "Python\n\n"
@@ -190,7 +190,7 @@ with tech_col1:
 
 with tech_col2:
 
-    st.markdown("### 🤖 Data & AI")
+    st.markdown("### Data & AI")
 
     st.write(
         "RFM Analysis\n\n"
@@ -201,7 +201,7 @@ with tech_col2:
 
 with tech_col3:
 
-    st.markdown("### ☁️ Cloud & Storage")
+    st.markdown("### Cloud & Storage")
 
     st.write(
         "AWS\n\n"

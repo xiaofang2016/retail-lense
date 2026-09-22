@@ -1,5 +1,7 @@
 """Upload transaction data for customer analysis."""
 
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -68,6 +70,7 @@ for column, field in zip(cols * 2, required_columns):
 st.caption("Optional column: Country")
 st.caption(f"Maximum file size: {MAX_UPLOAD_MB}MB")
 
+
 # ---------------------------------------------------------
 # Sample template
 # ---------------------------------------------------------
@@ -82,21 +85,23 @@ with sample_col1:
         "required format before uploading your own data."
     )
 
-with sample_col2:
-    st.download_button(
-        label="📥 Download Sample",
-        data=b"",
-        file_name="transactions_sample.csv",
-        mime="text/csv",
-        disabled=True,
-        use_container_width=True,
-        help="The sample template will be available when the backend is running.",
-    )
-
-st.caption(
-    "The sample template is currently unavailable while "
-    "the backend is offline."
+sample_file = (
+    Path(__file__).resolve().parent.parent
+    / "assets"
+    / "transactions_template.csv"
 )
+
+with sample_col2:
+    if sample_file.exists():
+        st.download_button(
+            label="📥 Download Sample",
+            data=sample_file.read_bytes(),
+            file_name="transactions_template.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    else:
+        st.warning("Sample file is currently unavailable.")
 
 
 # ---------------------------------------------------------
@@ -206,6 +211,7 @@ if uploaded_file is not None:
 
             st.caption(str(exc))
 
+
 # ---------------------------------------------------------
 # Start analysis
 # ---------------------------------------------------------
@@ -264,21 +270,30 @@ if st.button(
             # Remember the analysis_id so the Report page can poll its status.
             st.session_state["analysis_id"] = created["analysis_id"]
 
-            st.success("Analysis started successfully!")
-
-            st.info(
-                "Your transaction data is being processed. "
-                "Visit the Analysis Library to check the status "
-                "and view your report when it is ready."
-            )
-
-            if st.button(
-                "📚 Go to Analysis Library",
-                use_container_width=True,
-            ):
-                st.switch_page("pages/8_Analysis_Library.py")
+            # Remember that analysis was successfully started.
+            st.session_state["analysis_started"] = True
 
         except api_client.ApiError as exc:
             st.error(f"Could not start the analysis: {exc.detail}")
 
 
+# ---------------------------------------------------------
+# Analysis started
+# ---------------------------------------------------------
+
+if st.session_state.get("analysis_started"):
+
+    st.success("Analysis started successfully!")
+
+    st.info(
+        "Your transaction data is being processed. "
+        "Visit the Analysis Library to check the status "
+        "and view your report when it is ready."
+    )
+
+    if st.button(
+        "📚 Go to Analysis Library",
+        use_container_width=True,
+    ):
+        st.session_state.pop("analysis_started", None)
+        st.switch_page("pages/8_Analysis_Library.py")
