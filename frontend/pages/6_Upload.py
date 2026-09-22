@@ -15,6 +15,14 @@ setup("Upload Data")
 
 
 # ---------------------------------------------------------
+# Session state
+# ---------------------------------------------------------
+
+if "analysis_started" not in st.session_state:
+    st.session_state["analysis_started"] = False
+
+
+# ---------------------------------------------------------
 # Page header
 # ---------------------------------------------------------
 
@@ -119,6 +127,7 @@ st.write(
 uploaded_file = st.file_uploader(
     "Choose a file",
     type=["csv", "xlsx"],
+    key="transaction_file",
     help=(
         "Supported formats: CSV and Excel (.xlsx). "
         "The file must contain all required columns."
@@ -229,6 +238,7 @@ if st.button(
     "🚀 Start Analysis",
     type="primary",
     use_container_width=True,
+    disabled=st.session_state["analysis_started"],
 ):
 
     if uploaded_file is None:
@@ -270,10 +280,13 @@ if st.button(
             # Remember the analysis_id so the Report page can poll its status.
             st.session_state["analysis_id"] = created["analysis_id"]
 
-            # Remember that analysis was successfully started.
+            # Prevent accidental duplicate submissions.
             st.session_state["analysis_started"] = True
 
+            st.rerun()
+
         except api_client.ApiError as exc:
+            st.session_state["analysis_started"] = False
             st.error(f"Could not start the analysis: {exc.detail}")
 
 
@@ -291,9 +304,22 @@ if st.session_state.get("analysis_started"):
         "and view your report when it is ready."
     )
 
-    if st.button(
-        "📚 Go to Analysis Library",
-        use_container_width=True,
-    ):
-        st.session_state.pop("analysis_started", None)
-        st.switch_page("pages/8_Analysis_Library.py")
+    library_col, new_analysis_col = st.columns(2)
+
+    with library_col:
+        if st.button(
+            "📚 Go to Analysis Library",
+            use_container_width=True,
+        ):
+            st.switch_page("pages/8_Analysis_Library.py")
+
+    with new_analysis_col:
+        if st.button(
+            "Start New Analysis",
+            use_container_width=True,
+        ):
+            st.session_state["analysis_started"] = False
+            st.session_state.pop("analysis_id", None)
+            st.session_state.pop("transaction_file", None)
+
+            st.rerun()
