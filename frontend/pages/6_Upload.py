@@ -182,20 +182,20 @@ if uploaded_file is not None:
 
                 st.success("✓ File structure is valid.")
 
-                with st.expander("Preview transaction data"):
+                # with st.expander("Preview transaction data"):
 
-                    # Columns like StockCode can mix numeric and alphanumeric codes
-                    # (e.g. 20713 and 85123A), which breaks Streamlit's Arrow-based
-                    # rendering unless coerced to a single consistent type first.
-                    preview_df = df.head(10).copy()
+                #     # Columns like StockCode can mix numeric and alphanumeric codes
+                #     # (e.g. 20713 and 85123A), which breaks Streamlit's Arrow-based
+                #     # rendering unless coerced to a single consistent type first.
+                #     preview_df = df.head(10).copy()
 
-                    for column in preview_df.select_dtypes(include=["object", "str"]).columns:
-                        preview_df[column] = preview_df[column].astype(str)
+                #     for column in preview_df.select_dtypes(include=["object", "str"]).columns:
+                #         preview_df[column] = preview_df[column].astype(str)
 
-                    st.dataframe(
-                        preview_df,
-                        use_container_width=True,
-                    )
+                #     st.dataframe(
+                #         preview_df,
+                #         use_container_width=True,
+                #     )
 
         except Exception as exc:
 
