@@ -14,7 +14,6 @@ import time
 from typing import Any
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from services import api_client, session_store
 
@@ -136,10 +135,9 @@ def _write_browser_cookie(session_id: str | None, max_age: int = 0) -> None:
     if any(char in assignment for char in '"<>\\\n\r'):
         logger.warning("refusing to write unsafe cookie assignment")
         return
-    components.html(
+    st.iframe(
         f"<script>document.cookie = {assignment!r};</script>",
-        height=0,
-        scrolling=False,
+        height=1,
     )
 
 
