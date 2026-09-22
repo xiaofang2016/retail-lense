@@ -803,8 +803,9 @@ Resources:
               - TargetGroupArn: !Ref TargetGroup1c
                 Weight: 50
             TargetGroupStickinessConfig:
-              Enabled: false
-
+              Enabled: true
+              DurationSeconds: 3600
+              
   UnhealthyHostAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
