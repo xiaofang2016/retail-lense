@@ -1,5 +1,7 @@
 """Upload transaction data for customer analysis."""
 
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -10,6 +12,14 @@ MAX_UPLOAD_MB = 30
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 setup("Upload Data")
+
+
+# ---------------------------------------------------------
+# Session state
+# ---------------------------------------------------------
+
+if "analysis_started" not in st.session_state:
+    st.session_state["analysis_started"] = False
 
 
 # ---------------------------------------------------------
@@ -68,6 +78,7 @@ for column, field in zip(cols * 2, required_columns):
 st.caption("Optional column: Country")
 st.caption(f"Maximum file size: {MAX_UPLOAD_MB}MB")
 
+
 # ---------------------------------------------------------
 # Sample template
 # ---------------------------------------------------------
@@ -82,21 +93,23 @@ with sample_col1:
         "required format before uploading your own data."
     )
 
-with sample_col2:
-    st.download_button(
-        label="📥 Download Sample",
-        data=b"",
-        file_name="transactions_sample.csv",
-        mime="text/csv",
-        disabled=True,
-        use_container_width=True,
-        help="The sample template will be available when the backend is running.",
-    )
-
-st.caption(
-    "The sample template is currently unavailable while "
-    "the backend is offline."
+sample_file = (
+    Path(__file__).resolve().parent.parent
+    / "assets"
+    / "transactions_template.csv"
 )
+
+with sample_col2:
+    if sample_file.exists():
+        st.download_button(
+            label="📥 Download Sample",
+            data=sample_file.read_bytes(),
+            file_name="transactions_template.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    else:
+        st.warning("Sample file is currently unavailable.")
 
 
 # ---------------------------------------------------------
@@ -114,6 +127,7 @@ st.write(
 uploaded_file = st.file_uploader(
     "Choose a file",
     type=["csv", "xlsx"],
+    key="transaction_file",
     help=(
         "Supported formats: CSV and Excel (.xlsx). "
         "The file must contain all required columns."
@@ -206,6 +220,7 @@ if uploaded_file is not None:
 
             st.caption(str(exc))
 
+
 # ---------------------------------------------------------
 # Start analysis
 # ---------------------------------------------------------
@@ -223,6 +238,7 @@ if st.button(
     "🚀 Start Analysis",
     type="primary",
     use_container_width=True,
+    disabled=st.session_state["analysis_started"],
 ):
 
     if uploaded_file is None:
@@ -264,21 +280,46 @@ if st.button(
             # Remember the analysis_id so the Report page can poll its status.
             st.session_state["analysis_id"] = created["analysis_id"]
 
-            st.success("Analysis started successfully!")
+            # Prevent accidental duplicate submissions.
+            st.session_state["analysis_started"] = True
 
-            st.info(
-                "Your transaction data is being processed. "
-                "Visit the Analysis Library to check the status "
-                "and view your report when it is ready."
-            )
-
-            if st.button(
-                "📚 Go to Analysis Library",
-                use_container_width=True,
-            ):
-                st.switch_page("pages/8_Analysis_Library.py")
+            st.rerun()
 
         except api_client.ApiError as exc:
+            st.session_state["analysis_started"] = False
             st.error(f"Could not start the analysis: {exc.detail}")
 
 
+# ---------------------------------------------------------
+# Analysis started
+# ---------------------------------------------------------
+
+if st.session_state.get("analysis_started"):
+
+    st.success("Analysis started successfully!")
+
+    st.info(
+        "Your transaction data is being processed. "
+        "Visit the Analysis Library to check the status "
+        "and view your report when it is ready."
+    )
+
+    library_col, new_analysis_col = st.columns(2)
+
+    with library_col:
+        if st.button(
+            "📚 Go to Analysis Library",
+            use_container_width=True,
+        ):
+            st.switch_page("pages/8_Analysis_Library.py")
+
+    with new_analysis_col:
+        if st.button(
+            "Start New Analysis",
+            use_container_width=True,
+        ):
+            st.session_state["analysis_started"] = False
+            st.session_state.pop("analysis_id", None)
+            st.session_state.pop("transaction_file", None)
+
+            st.rerun()
