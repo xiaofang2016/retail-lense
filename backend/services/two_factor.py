@@ -95,7 +95,12 @@ class TwoFactorService:
         fresh.phone_verified = True
         fresh.two_factor_enabled = True
         self.store.delete_otp(user.email)
-        return self.store.update(fresh)
+        return self.store.patch(
+            fresh.user_id,
+            phone=record.phone,
+            phone_verified=True,
+            two_factor_enabled=True,
+        ) or fresh
 
     def disable(self, user: UserRecord) -> UserRecord:
         fresh = self.store.get_by_id(user.user_id) or user
@@ -103,7 +108,12 @@ class TwoFactorService:
         fresh.phone_verified = False
         fresh.two_factor_enabled = False
         self.store.delete_otp(fresh.email)
-        return self.store.update(fresh)
+        return self.store.patch(
+            fresh.user_id,
+            phone="",
+            phone_verified=False,
+            two_factor_enabled=False,
+        ) or fresh
 
     def send_login_otp(self, user: UserRecord) -> str:
         self._send(email=user.email, phone=user.phone, purpose=PURPOSE_LOGIN, user_id=user.user_id)

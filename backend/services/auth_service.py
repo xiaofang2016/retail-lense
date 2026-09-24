@@ -64,17 +64,17 @@ class AuthService:
         if user.locked_at is not None and not user.is_locked:
             user.locked_at = None
             user.login_attempts = 0
-            return self.store.update(user)
+            return self.store.patch(user.user_id, login_attempts=0, locked_at=None) or user
         return user
 
     def lock_user(self, user: UserRecord) -> UserRecord:
         user.locked_at = datetime.now(UTC)
-        return self.store.update(user)
+        return self.store.patch(user.user_id, locked_at=user.locked_at) or user
 
     def unlock_user(self, user: UserRecord) -> UserRecord:
         user.locked_at = None
         user.login_attempts = 0
-        return self.store.update(user)
+        return self.store.patch(user.user_id, login_attempts=0, locked_at=None) or user
 
     def _ip_blocked(self, user: UserRecord, ip: str) -> bool:
         try:
@@ -101,7 +101,7 @@ class AuthService:
         fresh = self.store.get_by_id(user.user_id) or user
         if ip not in fresh.blocked_ips:
             fresh.blocked_ips = [*fresh.blocked_ips, ip]
-            fresh = self.store.update(fresh)
+            fresh = self.store.patch(fresh.user_id, blocked_ips=list(fresh.blocked_ips)) or fresh
         return fresh
 
     def unblock_ip(self, user: UserRecord, ip: str) -> UserRecord:
@@ -111,7 +111,7 @@ class AuthService:
             raise ValueError("invalid IP") from exc
         fresh = self.store.get_by_id(user.user_id) or user
         fresh.blocked_ips = [item for item in fresh.blocked_ips if item != ip]
-        return self.store.update(fresh)
+        return self.store.patch(fresh.user_id, blocked_ips=list(fresh.blocked_ips)) or fresh
 
     def authenticate(
         self, username: str, password: str, remember_me: bool, ip: str, user_agent: str = ""
@@ -138,14 +138,14 @@ class AuthService:
 
         if not hasher.verify(password, user.password_hash):
             user.login_attempts += 1
-            self.store.update(user)
+            self.store.patch(user.user_id, login_attempts=user.login_attempts)
             if user.login_attempts >= self.settings.security_max_login_attempts:
                 self.lock_user(user)
             self._record_event(user_id=user.user_id, username=username, ip=ip, success=False, user_agent=user_agent)
             raise LookupError("invalid credentials")
 
         user.login_attempts = 0
-        self.store.update(user)
+        self.store.patch(user.user_id, login_attempts=0)
 
         if user.two_factor_enabled and user.phone_verified and user.phone:
             hint = TwoFactorService(self.store).send_login_otp(user)

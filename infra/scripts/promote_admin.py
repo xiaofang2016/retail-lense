@@ -142,13 +142,18 @@ def _no_credentials_message(services: set[str]) -> str:
     )
 
 
+def _table_target() -> tuple[str, str, str]:
+    name = os.getenv("DDB_USERS_TABLE", "retaillen-users")
+    endpoint = os.getenv("DDB_ENDPOINT", "").strip()
+    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+    return name, endpoint, region
+
+
 def table():
     import boto3
 
-    name = os.getenv("DDB_USERS_TABLE", "retaillen-users")
-    endpoint = os.getenv("DDB_ENDPOINT", "").strip()
+    name, endpoint, region = _table_target()
     if endpoint:
-        region = os.getenv("AWS_REGION", "us-east-1")
         resource = boto3.resource(
             "dynamodb",
             region_name=region,
@@ -310,6 +315,10 @@ def main() -> int:
         return 2
 
     _load_redis_url_from_secrets()
+    table_name, endpoint, region = _table_target()
+    print(f"table:    {table_name}")
+    print(f"region:   {region}")
+    print(f"endpoint: {endpoint or 'AWS DynamoDB'}")
     users = table()
     item = find_user(users, args.email, args.username)
     if not item:
@@ -340,7 +349,16 @@ def main() -> int:
         UpdateExpression="SET is_admin = :flag",
         ExpressionAttributeValues={":flag": flag},
     )
-    print("updated DynamoDB")
+    verify = users.get_item(Key={"user_id": item["user_id"]}, ConsistentRead=True)
+    stored = (verify.get("Item") or {}).get("is_admin")
+    if bool(stored) is not flag:
+        print(
+            f"DynamoDB write did not stick: is_admin={stored!r} on {table_name} "
+            f"({endpoint or region})",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"updated DynamoDB {table_name} is_admin={stored}")
     sessions = refresh_session_cache(item["user_id"], flag, dry_run=False)
     print(f"updated {sessions} Redis session(s)")
     if sessions == 0:

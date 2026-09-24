@@ -39,11 +39,15 @@ class PasswordResetService:
         reset_url = self.settings.password_reset_url(token_entry.token)
         try:
             sent = self.email.send_forgot_password(email, reset_url)
-        except Exception as exc:
-            logger.error("failed to send reset email: %s", exc)
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to send reset email") from exc
+        except Exception:
+            logger.exception("failed to send reset email to %s", email)
+            return
         if not sent:
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to send reset email")
+            logger.error(
+                "failed to send reset email to %s (SMTP not configured or send returned false)",
+                email,
+            )
+            return
         logger.info("password reset email sent to %s", email)
 
     def reset_password(self, token: str, new_password: str) -> None:
@@ -61,5 +65,10 @@ class PasswordResetService:
         user.password_hash = get_hasher().hash(new_password)
         user.login_attempts = 0
         user.locked_at = None
-        self.store.update(user)
+        self.store.patch(
+            user.user_id,
+            password_hash=user.password_hash,
+            login_attempts=0,
+            locked_at=None,
+        )
         self.store.delete_reset_token(token)

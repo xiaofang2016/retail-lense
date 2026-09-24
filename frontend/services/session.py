@@ -203,8 +203,8 @@ def _restore() -> None:
         st.session_state["access_token"] = saved["access_token"]
         st.session_state["refresh_token"] = saved.get("refresh_token")
         st.session_state["remember_me"] = bool(saved.get("remember_me"))
-    if saved.get("user") is not None:
-        st.session_state["user"] = saved["user"]
+        if saved.get("user") is not None:
+            st.session_state["user"] = saved["user"]
     _refresh_user_from_api()
 
 

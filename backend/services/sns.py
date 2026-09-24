@@ -93,6 +93,9 @@ def _use_aws_topic() -> bool:
 def subscribe_analysis_complete_email(*, email: str, user_id: str) -> str:
     """Subscribe one address to the completion topic, filtered to this user_id."""
     endpoint = email.strip().lower()
+    settings = get_settings()
+    if settings.app_env == "aws" and not settings.sns_analysis_complete_topic_arn:
+        raise RuntimeError("SNS_ANALYSIS_COMPLETE_TOPIC_ARN is not set")
     if _use_aws_topic():
         response = _sns_client().subscribe(
             TopicArn=get_settings().sns_analysis_complete_topic_arn,
@@ -116,7 +119,7 @@ def subscribe_analysis_complete_email(*, email: str, user_id: str) -> str:
 def unsubscribe_analysis_complete(subscription_arn: str) -> None:
     if not subscription_arn:
         return
-    if not _use_aws_topic():
+    if ":sns:memory:" in subscription_arn or not _use_aws_topic():
         _memory_subscriptions[:] = [item for item in _memory_subscriptions if item.arn != subscription_arn]
         return
     from botocore.exceptions import ClientError

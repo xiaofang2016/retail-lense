@@ -22,6 +22,8 @@ class UserStore(Protocol):
 
     def update(self, user: UserRecord) -> UserRecord: ...
 
+    def patch(self, user_id: str, **fields: object) -> UserRecord | None: ...
+
     def add_login_event(self, event: LoginEvent) -> LoginEvent: ...
 
     def list_login_events(self, user_id: str, limit: int = 50) -> list[LoginEvent]: ...
@@ -95,6 +97,15 @@ class MemoryUserStore:
         with self._lock:
             self._by_id[user.user_id] = user
         return user
+
+    def patch(self, user_id: str, **fields: object) -> UserRecord | None:
+        with self._lock:
+            user = self._by_id.get(user_id)
+            if user is None:
+                return None
+            for key, value in fields.items():
+                setattr(user, key, value)
+            return user
 
     def add_login_event(self, event: LoginEvent) -> LoginEvent:
         with self._lock:
@@ -182,29 +193,29 @@ class DynamoUserStore:
         )
 
     def get_by_id(self, user_id: str) -> UserRecord | None:
-        response = self._users.get_item(Key={"user_id": user_id})
+        response = self._users.get_item(Key={"user_id": user_id}, ConsistentRead=True)
         item = response.get("Item")
         return self._item_to_user(item) if item else None
 
-    def get_by_username(self, username: str) -> UserRecord | None:
+    def _id_from_index(self, index: str, key: str, value: str) -> str | None:
         response = self._users.query(
-            IndexName="UsernameIndex",
-            KeyConditionExpression="username = :u",
-            ExpressionAttributeValues={":u": username.lower()},
+            IndexName=index,
+            KeyConditionExpression=f"{key} = :v",
+            ExpressionAttributeValues={":v": value},
             Limit=1,
         )
         items = response.get("Items") or []
-        return self._item_to_user(items[0]) if items else None
+        if not items:
+            return None
+        return str(items[0]["user_id"])
+
+    def get_by_username(self, username: str) -> UserRecord | None:
+        user_id = self._id_from_index("UsernameIndex", "username", username.lower())
+        return self.get_by_id(user_id) if user_id else None
 
     def get_by_email(self, email: str) -> UserRecord | None:
-        response = self._users.query(
-            IndexName="EmailIndex",
-            KeyConditionExpression="email = :e",
-            ExpressionAttributeValues={":e": email.lower()},
-            Limit=1,
-        )
-        items = response.get("Items") or []
-        return self._item_to_user(items[0]) if items else None
+        user_id = self._id_from_index("EmailIndex", "email", email.lower())
+        return self.get_by_id(user_id) if user_id else None
 
     def _user_item(self, user: UserRecord) -> dict:
         item = {
@@ -231,9 +242,69 @@ class DynamoUserStore:
         self._users.put_item(Item=self._user_item(user))
         return user
 
+    def _update_attributes(self, user_id: str, fields: dict, *, remove: list[str] | None = None) -> None:
+        names: dict[str, str] = {}
+        values: dict[str, object] = {}
+        assigns: list[str] = []
+        for index, (key, value) in enumerate(fields.items()):
+            name = f"#k{index}"
+            placeholder = f":v{index}"
+            names[name] = key
+            values[placeholder] = value
+            assigns.append(f"{name} = {placeholder}")
+        parts: list[str] = []
+        if assigns:
+            parts.append("SET " + ", ".join(assigns))
+        if remove:
+            for index, key in enumerate(remove):
+                name = f"#r{index}"
+                names[name] = key
+            parts.append("REMOVE " + ", ".join(f"#r{index}" for index in range(len(remove))))
+        if not parts:
+            return
+        kwargs: dict[str, object] = {
+            "Key": {"user_id": user_id},
+            "UpdateExpression": " ".join(parts),
+            "ExpressionAttributeNames": names,
+        }
+        if values:
+            kwargs["ExpressionAttributeValues"] = values
+        self._users.update_item(**kwargs)
+
     def update(self, user: UserRecord) -> UserRecord:
-        self._users.put_item(Item=self._user_item(user))
+        # PutItem replaces the whole row. Login loads the user from a GSI and
+        # would drop is_admin / notify_email / SNS ARN. Never touch those here.
+        item = self._user_item(user)
+        user_id =         item.pop("user_id")
+        for key in (
+            "is_admin",
+            "notify_email",
+            "sns_email_subscription_arn",
+            "phone",
+            "phone_verified",
+            "two_factor_enabled",
+            "blocked_ips",
+        ):
+            item.pop(key, None)
+        remove = []
+        if user.locked_at is None:
+            item.pop("locked_at", None)
+            remove.append("locked_at")
+        self._update_attributes(user_id, item, remove=remove)
         return user
+
+    def patch(self, user_id: str, **fields: object) -> UserRecord | None:
+        remove = [key for key, value in fields.items() if key == "locked_at" and value is None]
+        sets: dict[str, object] = {}
+        for key, value in fields.items():
+            if key in remove:
+                continue
+            if isinstance(value, datetime):
+                sets[key] = value.isoformat()
+            else:
+                sets[key] = value
+        self._update_attributes(user_id, sets, remove=remove)
+        return self.get_by_id(user_id)
 
     def add_login_event(self, event: LoginEvent) -> LoginEvent:
         created_at = event.created_at.isoformat(timespec="microseconds")
