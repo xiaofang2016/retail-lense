@@ -5,7 +5,6 @@ import streamlit as st
 from components.report_view import render_report
 from components.style import setup
 from services import api_client, session
-from services.display_time import format_submitted
 
 setup("Analysis Report")
 
@@ -22,9 +21,6 @@ if not session.signed_in():
     st.stop()
 
 
-# ---------------------------------------------------------
-# Resolve which analysis to show
-# ---------------------------------------------------------
 
 # Query param survives a browser refresh; session_state covers both a fresh upload
 # (pages/6_Upload.py sets "analysis_id" directly) and a click from the Library
@@ -33,7 +29,6 @@ selected_analysis = st.session_state.get("selected_analysis")
 
 analysis_id = (
     st.query_params.get("analysis_id")
-    or st.session_state.get("analysis_id")
     or (selected_analysis.get("id") if selected_analysis else None)
 )
 
@@ -41,6 +36,9 @@ if not analysis_id:
     st.warning("Please select an analysis from the Analysis Library.")
 
     if st.button("Go to Analysis Library"):
+        st.session_state.pop("analysis_id", None)
+        st.session_state.pop("selected_analysis", None)
+        st.query_params.clear()
         st.switch_page("pages/8_Analysis_Library.py")
 
     st.stop()
@@ -56,6 +54,9 @@ back_col, _ = st.columns([1, 5])
 
 with back_col:
     if st.button("← Back to Analysis Library"):
+        st.session_state.pop("analysis_id", None)
+        st.session_state.pop("selected_analysis", None)
+        st.query_params.clear()
         st.switch_page("pages/8_Analysis_Library.py")
 
 
@@ -68,7 +69,7 @@ st.title("Customer Analysis")
 if selected_analysis:
     st.caption(
         f"{selected_analysis.get('report', '')}  •  "
-        f"Submitted {format_submitted(selected_analysis['submitted'])}"
+        f"Submitted {selected_analysis['submitted'].strftime('%d %b %Y, %I:%M %p')}"
     )
 
 

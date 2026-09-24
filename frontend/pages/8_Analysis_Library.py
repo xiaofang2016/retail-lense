@@ -182,74 +182,20 @@ search_button = st.button(
     use_container_width=True,
 )
 
-
-# ---------------------------------------------------------
-# Load analysis data
-# ---------------------------------------------------------
-
-df = pd.DataFrame(
-    st.session_state["analyses"]
-)
-
-
-# ---------------------------------------------------------
-# Apply filters
-# ---------------------------------------------------------
-
-filtered_df = df.copy()
-
-
+# Persist the applied filters so the auto-refreshing table below keeps
+# using them on every poll tick, not just the run where Search was clicked.
 if search_button:
-
-    if search:
-
-        filtered_df = filtered_df[
-            filtered_df["report"].str.contains(
-                search,
-                case=False,
-                na=False,
-            )
-        ]
-
-
-    if status_filter != "All":
-
-        filtered_df = filtered_df[
-            filtered_df["status"] == status_filter
-        ]
-
-
-    now_local = datetime.now(DISPLAY_TZ)
-    today = now_local.date()
-    submitted_local = filtered_df["submitted"].dt.tz_convert(str(DISPLAY_TZ))
-
-    if date_filter == "Today":
-
-        filtered_df = filtered_df[
-            submitted_local.dt.date == today
-        ]
-
-
-    elif date_filter == "Last 7 days":
-
-        start_date = now_local - timedelta(days=7)
-
-        filtered_df = filtered_df[
-            submitted_local >= start_date
-        ]
-
-
-    elif date_filter == "Last 30 days":
-
-        start_date = now_local - timedelta(days=30)
-
-        filtered_df = filtered_df[
-            submitted_local >= start_date
-        ]
+    st.session_state["library_filters"] = {
+        "search": search,
+        "status": status_filter,
+        "date": date_filter,
+    }
 
 
 # ---------------------------------------------------------
-# Analysis list
+# Analysis list (auto-refreshes every few seconds so a
+# Processing status flips to Completed/Failed without a
+# manual page reload)
 # ---------------------------------------------------------
 
 st.divider()
@@ -257,13 +203,56 @@ st.divider()
 st.subheader("Your Analyses")
 
 
-if filtered_df.empty:
+@st.fragment(run_every="5s")
+def _render_analyses() -> None:
+    try:
+        fetched = api_client.list_analyses(session.token())["items"]
+    except api_client.ApiError as exc:
+        st.error(f"Could not load your analyses: {exc.detail}")
+        fetched = []
 
-    st.info(
-        "No analyses match your search or selected filters."
-    )
+    analyses = [
+        {
+            "id": item["analysis_id"],
+            "report": item["original_filename"],
+            "submitted": parse_created_at(item["created_at"]),
+            "status": _STATUS_DISPLAY.get(item["status"], "Processing"),
+        }
+        for item in fetched
+    ]
+    st.session_state["analyses"] = analyses
 
-else:
+    filtered_df = pd.DataFrame(analyses)
+    filters = st.session_state.get("library_filters")
+
+    if filters and not filtered_df.empty:
+
+        if filters["search"]:
+            filtered_df = filtered_df[
+                filtered_df["report"].str.contains(
+                    filters["search"], case=False, na=False
+                )
+            ]
+
+        if filters["status"] != "All":
+            filtered_df = filtered_df[filtered_df["status"] == filters["status"]]
+
+        now_local = datetime.now(DISPLAY_TZ)
+        today = now_local.date()
+        submitted_local = filtered_df["submitted"].dt.tz_convert(str(DISPLAY_TZ))
+
+        if filters["date"] == "Today":
+            filtered_df = filtered_df[submitted_local.dt.date == today]
+        elif filters["date"] == "Last 7 days":
+            start_date = now_local - timedelta(days=7)
+            filtered_df = filtered_df[submitted_local >= start_date]
+        elif filters["date"] == "Last 30 days":
+            start_date = now_local - timedelta(days=30)
+            filtered_df = filtered_df[submitted_local >= start_date]
+
+    if filtered_df.empty:
+        st.info("No analyses match your search or selected filters.")
+        return
 
     # -----------------------------------------------------
     # Table header
@@ -395,33 +384,6 @@ else:
         # View report
         # -------------------------------------------------
 
-        # with col4:
-
-        #     if status == "Completed":
-
-        #         if st.button(
-        #             "View",
-        #             key=f"view_{analysis['id']}",
-        #             use_container_width=True,
-        #         ):
-
-        #             st.session_state[
-        #                 "selected_analysis"
-        #             ] = {
-        #                 "id": analysis["id"],
-        #                 "report": analysis["report"],
-        #                 "submitted": analysis["submitted"],
-        #                 "status": analysis["status"],
-        #             }
-
-        #             st.switch_page(
-        #                 "pages/9_Analysis_Report.py"
-        #             )     
-
-        # -------------------------------------------------
-        # View report
-        # -------------------------------------------------
-
         with col4:
 
             if status == "Completed":
@@ -447,7 +409,7 @@ else:
 
                     st.switch_page(
                         "pages/9_Analysis_Report.py"
-                    )               
+                    )
 
 
         # -------------------------------------------------
@@ -471,6 +433,9 @@ else:
 
 
         st.divider()
+
+
+_render_analyses()
 
 
 # ---------------------------------------------------------
