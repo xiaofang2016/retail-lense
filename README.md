@@ -344,6 +344,8 @@ Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DD
 
 ## AWS services in scope
 
+Address-level paths (inbound, egress, and deploy) are in [docs/architecture.md](docs/architecture.md).
+
 | Service | Role |
 | --- | --- |
 | EC2 | Streamlit + FastAPI + analysis workers |
