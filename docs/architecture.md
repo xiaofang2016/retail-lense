@@ -23,7 +23,7 @@ flowchart TB
     subgraph PRIV["Private subnet 172.31.96.0/20 — us-east-1d — no public IP"]
       API["FastAPI :8000<br/>presigned URLs"]
       WRK["Worker<br/>K-Means, OpenAI"]
-      REDIS["Redis :6379<br/>same EC2 host"]
+      REDIS["Redis :6379<br/>compose volume"]
     end
 
     FEA -->|:8000| API

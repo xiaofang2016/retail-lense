@@ -55,6 +55,29 @@ services:
         mode: non-blocking
         max-buffer-size: "4m"
 
+  # Backend host only. Frontends reach it at the host's private IP :6379.
+  # Data is the named volume retaillen-redis-data. Deploys use `up -d --no-recreate`
+  # and never `restart` or `down -v` this service, so a CI restart keeps sessions.
+  redis:
+    image: redis:7.4-alpine
+    container_name: redis_container
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --dir /data --requirepass "$$REDIS_PASSWORD"
+        fi
+        exec redis-server --appendonly yes --dir /data
+    volumes:
+      - retaillen-redis-data:/data
+    stop_grace_period: 10s
+
   frontend:
     container_name: frontend_container
     build:
@@ -121,3 +144,7 @@ services:
   #    - "8001:8000"
   #  volumes:
   #    - dynamodb-data:/data
+
+volumes:
+  retaillen-redis-data:
+    name: retaillen-redis-data

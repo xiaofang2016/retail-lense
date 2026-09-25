@@ -25,7 +25,56 @@ else
     NEW_COMMIT="$(git rev-parse HEAD)"
 fi
 
-echo "[3/5] Building and restarting backend + worker..."
+echo "[3/5] Ensuring Redis is up, then restarting backend + worker..."
+# Redis data lives on the named volume retaillen-redis-data. --no-recreate leaves
+# the existing container in place, and this script never restarts Redis or runs
+# `compose down -v`. A CI deploy therefore does not wipe sessions.
+if [[ -z "${REDIS_PASSWORD:-}" && -f .env ]]; then
+    redis_line="$(grep -E '^REDIS_PASSWORD=' .env | tail -n 1 || true)"
+    REDIS_PASSWORD="${redis_line#REDIS_PASSWORD=}"
+    REDIS_PASSWORD="${REDIS_PASSWORD%\"}"
+    REDIS_PASSWORD="${REDIS_PASSWORD#\"}"
+    REDIS_PASSWORD="${REDIS_PASSWORD%\'}"
+    REDIS_PASSWORD="${REDIS_PASSWORD#\'}"
+fi
+if [[ -z "${REDIS_PASSWORD:-}" ]] && command -v aws >/dev/null 2>&1; then
+    redis_raw="$(aws secretsmanager get-secret-value \
+        --secret-id retaillen/REDIS_PASSWORD \
+        --query SecretString \
+        --output text \
+        --region "${AWS_REGION:-us-east-1}" 2>/dev/null || true)"
+    if [[ -n "${redis_raw}" && "${redis_raw}" != "None" ]]; then
+        REDIS_PASSWORD="$(printf '%s' "${redis_raw}" | python3 -c '
+import json, sys
+raw = sys.stdin.read().strip()
+try:
+    payload = json.loads(raw)
+except json.JSONDecodeError:
+    payload = None
+if isinstance(payload, dict):
+    for key in ("REDIS_PASSWORD", "password", "secret"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            print(value, end="")
+            raise SystemExit(0)
+    raise SystemExit(1)
+print(raw, end="")
+')" || true
+    fi
+fi
+export REDIS_PASSWORD
+if [[ -z "$(docker compose ps -aq redis)" && -z "${REDIS_PASSWORD}" ]]; then
+    echo "ERROR: REDIS_PASSWORD is required to create the Redis container."
+    echo "Set it in .env or allow this host to read retaillen/REDIS_PASSWORD."
+    exit 1
+fi
+if ! docker compose up -d --no-recreate redis; then
+    echo "ERROR: Redis did not start. If port 6379 is still taken by a host redis-server, stop that process first."
+    echo "The named volume is not deleted by this failure."
+    exit 1
+fi
+
+echo "Building and restarting backend + worker..."
 # Rebuild only when backend/requirements.txt changes. A full image build is slow
 # on the course VM; Python code is bind-mounted so a restart is enough otherwise.
 # worker shares the backend build context (see docker-compose.yml).
