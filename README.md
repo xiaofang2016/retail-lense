@@ -63,7 +63,7 @@ flowchart TB
   COMP --> SNSDONE["SNS analysis-complete"]
 ```
 
-Browser traffic enters only through CloudFront, then the ALB in public subnets `us-east-1a` and `us-east-1c`. The ALB listener is HTTPS :443 (IAM certificate `cloudfront/retaillen-letsencrypt`, expires 24 November 2026; ACM is out of scope). It forwards to Streamlit on both frontends. Sign-in and sign-up go to a Lambda Function URL outside the VPC. Sessions live in Redis on the backend host, so a request that lands on the other frontend keeps the login.
+Browser traffic enters only through CloudFront, then the ALB in public subnets `us-east-1a` and `us-east-1c`. The ALB listener is HTTPS :443 (IAM certificate `cloudfront/retaillen-letsencrypt`, expires 24 November 2026; ACM is out of scope). It forwards to Streamlit on both frontends, with stickiness so the same browser stays on the same instance. Sign-in and sign-up go to a Lambda Function URL outside the VPC. The session for that login is stored in Redis on the backend host.
 
 The API, worker, and Redis run on one EC2 in `backend-private-subnet` (`172.31.96.0/20`, `us-east-1d`) with no public IPv4. That subnet has its own route table. `0.0.0.0/0` points at frontend 1C's ENI, not at an Internet Gateway and not at a NAT Gateway. On 1C, source/destination check is off and `iptables` MASQUERADE rewrites traffic from `172.31.96.0/20` to 1C's public address. `retaillen-nat-sg` accepts that subnet only, and only on 1C.
 
