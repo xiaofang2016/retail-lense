@@ -91,7 +91,7 @@ Security groups are the boundary. The live ALB group accepts TCP 443 only from t
 | `retaillen-ssh-sg` | TCP 22 from `retaillen-eic-sg` | All three EC2 |
 | `retaillen-eic-sg` | none | EICE |
 
-`retaillen-security-group` (TCP 22 from `0.0.0.0/0`) and `retaillen-app-sg` are leftovers. Neither is attached. Do not attach the SSH group.
+`retaillen-app-sg` (8501 from the ALB, 6379 from an old group) is a leftover and is not attached.
 
 ```mermaid
 flowchart LR
@@ -108,17 +108,17 @@ Application security groups allow egress to `0.0.0.0/0`. That egress is how the 
 
 ### IAM
 
-Instance and Lambda roles call AWS. Laptops do not hold production keys. Git JSON under `infra/iam/` is the policy text; the live backend role name is `retail-ec2role`.
+Instance and Lambda roles call AWS. Laptops do not hold production keys. The policy text is the JSON under `infra/iam/`. The live backend role name is `retail-ec2role`; its document is `retaillen-backend-runtime-policy.json`. `backend-runtime.json` is an older copy (no `s3:DeleteObject`, no SMS protocol condition) and is not the text below.
 
 | Principal | May call |
 | --- | --- |
 | `retail-frontend-runtime-role` (1A and 1C) | `GetSecretValue` on `retaillen/AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, `SESSION_COOKIE_PASSWORD` only |
-| `retail-ec2role` (backend) | S3 get on `public/`, `uploads/`, `results/`; put and delete on `uploads/` and `results/`; DynamoDB CRUD on the five tables; SQS on `retaillen-analysis-queue`; `sns:Publish`; secrets `jwt`, `openai`, Redis, SMTP |
-| `retaillen-signin-lambda` | DynamoDB on users, login-history, and otps; `sns:Publish` for SMS; `GetSecretValue` on `retaillen*` |
+| `retail-ec2role` (backend) | S3 get on `public/`, `uploads/`, `results/`; put and delete on `uploads/` and `results/`; DynamoDB CRUD on the five tables; SQS on `retaillen-analysis-queue`; `sns:Publish` to `retaillen-analysis-complete`, and to SMS only when `sns:Protocol` is `sms`; secrets `jwt`, `openai`, Redis, SMTP |
+| `retaillen-signin-lambda` | DynamoDB on users, login-history, and otps; `sns:Publish` only when `sns:Protocol` is `sms`; `GetSecretValue` on `retaillen/jwt-*` only |
 | `retail-lamdba-role` (completion) | `UpdateItem` on analyses, SNS on the completion topic, `s3:GetObject` on `results/*` |
-| IAM user `github-eice` | `OpenTunnel` on the EICE endpoint, `SendSSHPublicKey`, describe instances in `us-east-1` |
+| IAM user `github-eice` | `OpenTunnel` on EICE endpoints in this account; `SendSSHPublicKey` on instances only as OS user `mike`; `DescribeInstances` and `DescribeInstanceConnectEndpoints` only in `us-east-1` |
 
-The frontend role has no S3, DynamoDB, or SQS permission. The browser uploads with a presigned URL signed by `retail-ec2role`. The sign-in Lambda secret prefix `retaillen*` is wider than `retaillen/jwt` and should be tightened. `sns:Publish` on `*` is how SMS is authorized. `UploadServerCertificatePolicy` on the backend role is unused by the API. The frontend role also has the CloudWatch agent policy and `AmazonSSMManagedInstanceCore`; deploys themselves go through EICE, not SSM.
+The frontend role has no S3, DynamoDB, or SQS permission. The browser uploads with a presigned URL signed by `retail-ec2role`. The sign-in Lambda reads `retaillen/jwt-*` only. SMS has no topic ARN, so `sns:Publish` uses `*` with `sns:Protocol` equal to `sms`. Analysis-complete publish is limited to that topic. `UploadServerCertificatePolicy` on the backend role is unused by the API. The frontend role also has the CloudWatch agent policy and `AmazonSSMManagedInstanceCore`; deploys themselves go through EICE, not SSM.
 
 ```mermaid
 flowchart LR
@@ -130,7 +130,7 @@ flowchart LR
   BE -->|GetSecretValue| SM2["Secrets Manager<br/>jwt, openai, Redis, SMTP"]
   SL["retaillen-signin-lambda"] -->|users, history, otps| DDB
   SL -->|Publish SMS| SNS
-  SL -->|GetSecretValue| SM3["Secrets Manager<br/>retaillen/*"]
+  SL -->|GetSecretValue| SM3["Secrets Manager<br/>retaillen/jwt"]
   CL["retail-lamdba-role"] -->|UpdateItem analyses| DDB
   CL -->|Publish| SNS
   CL -->|GetObject results| S3
@@ -140,7 +140,7 @@ flowchart LR
 ### Application controls
 
 - Passwords are bcrypt. JWT material is `retaillen/jwt` in Secrets Manager (`JWT_SECRET` is a local fallback only).
-- Five failed logins lock the account for 24 hours (HTTP 423). Repeated failures from one IP return 429. An account owner can block an IP (HTTP 403).
+- Five failed logins lock the account for 24 hours (HTTP 423). Repeated failures from one IP return 429. An administrator can block an IP (HTTP 403). A non-admin cannot.
 - Each attempt is stored in `retaillen-login-history` with the browser IP. Streamlit sends `x-retaillen-client-ip` because the Lambda URL's CloudFront hop rewrites `X-Forwarded-For`.
 - SMS 2FA is optional after login. Unbound accounts sign in with a password only.
 - Forgot-password emails a one-time link (48 h). Unknown addresses still return HTTP 200.
@@ -148,13 +148,27 @@ flowchart LR
 - S3 keys are per-user prefixes. The UI does not list another user's prefix. Secrets are not in git. On EC2, `APP_ENV=aws` and empty secret env vars force a role read from Secrets Manager.
 - IMDSv2 is required (hop limit 2) so Docker Compose can assume the instance role.
 
+### Security considerations
+
+Checked against the live security groups, the 25 September 2026 instance metadata, and `infra/iam/*.json`.
+
+1. **Least-privilege IAM.** `retail-frontend-runtime-role` may `GetSecretValue` on four secrets only: `retaillen/AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, `SESSION_COOKIE_PASSWORD` (`frontend-runtime.json`). That policy has no S3, DynamoDB, or SQS. The role also has the CloudWatch agent policy and `AmazonSSMManagedInstanceCore`; deploys do not use SSM. `retail-ec2role` is limited to the `public/`, `uploads/`, and `results/` prefixes, the five DynamoDB tables, and `retaillen-analysis-queue`. App containers do not receive long-lived access keys; they use the instance role. The CI user `github-eice` is a separate key, stored in GitHub Actions, and it cannot call S3 or DynamoDB.
+2. **IMDSv2.** All three running instances have `HttpTokens=required` and hop limit 2. IMDSv1 is off. Hop 2 is what lets a container reach the instance role.
+3. **Secrets Manager.** JWT, OpenAI, Redis, SMTP, the session-cookie password, and the sign-in Lambda URL are not in git. On EC2 those `.env` values stay empty and the instance role calls `GetSecretValue`. The sign-in Lambda reads `retaillen/jwt-*` only.
+4. **Security groups.** Browsers reach CloudFront. The ALB accepts TCP 443 only from the CloudFront origin-facing prefix list `pl-3b927c52`, not from `0.0.0.0/0`. Another distribution can still connect: there is no secret origin header. Users cannot open Streamlit themselves; only the ALB group may connect to the frontends on 8501. FastAPI 8000 accepts traffic only from the frontend group. Redis 6379 is the same: frontend group only, on the backend host. `retaillen-nat-sg` allows the private subnet `172.31.96.0/20` onto 1C only.
+5. **EICE, no public SSH.** Port 22 is not open to `0.0.0.0/0`. `retaillen-ssh-sg` allows TCP 22 only from `retaillen-eic-sg`, which has no inbound of its own. Operators and GitHub Actions open an Instance Connect tunnel and push a short-lived SSH key. `github-eice` may `OpenTunnel` and may `SendSSHPublicKey` only as OS user `mike`.
+6. **Presigned uploads.** The browser PUTs to S3 with a URL signed by `retail-ec2role` (15 minutes). Streamlit has no `s3:PutObject`.
+7. **Login protections.** Passwords are bcrypt. Five failures lock the account for 24 hours. Failures from one IP return 429. An administrator can block an IP. Sign-up uses a CAPTCHA. Forgot-password always returns HTTP 200, including for unknown addresses.
+8. **Sessions.** Sign-in returns an access JWT (48 hours by default, 14 days with remember-me) and a refresh token (7 days, or 14 with remember-me). The Streamlit browser cookie holds a signed session id. The tokens for that session live in Redis. TLS terminates at the ALB (IAM certificate, not ACM).
+9. **EBS encryption.** Root volumes are encrypted with the AWS-managed key `aws/ebs`, so Docker data and the on-disk `.env` are encrypted at rest.
+10. **Private backend.** The API, worker, and Redis run in `backend-private-subnet` (`172.31.96.0/20`, `us-east-1d`) with no public IPv4. Ports 8000 and 6379 are reachable only from the frontend group inside the VPC. Egress from that subnet goes to 1C, not to an Internet Gateway.
+
 ### Residual risks
 
 1. **1C is a single egress hop.** Backend calls to S3, SQS, Secrets Manager, git, OpenAI, and SMTP stop if 1C stops or if Docker rewrites `iptables`.
-2. **Frontends are on public subnets.** Port 8501 is limited by the frontend group today. Attaching `retaillen-security-group` would publish SSH.
+2. **Frontends are on public subnets.** Port 8501 is limited to the ALB group. A new inbound rule for 8501 from `0.0.0.0/0` on 1A or 1C would publish Streamlit.
 3. **The sign-in Function URL is public HTTPS.** The control is bcrypt, JWT, and lockout. The URL itself has no IAM auth.
-4. **Sign-in Lambda may read `retaillen*`.** The secret it needs is `retaillen/jwt`.
-5. **The IAM certificate expires on 24 November 2026.**
+4. **The IAM certificate expires on 24 November 2026.**
 
 ## Python
 
