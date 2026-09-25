@@ -29,6 +29,9 @@ privacy_page = st.Page(
     "pages/10_Data_Privacy.py",
     title="Data Privacy Policy",
     icon="🔒",
+    # Pinned explicitly so other pages (e.g. the Sign Up consent link) can
+    # link to a stable URL instead of relying on Streamlit's title-derived slug.
+    url_path="data_privacy_policy",
 )
 
 about_page = st.Page(
@@ -120,4 +123,8 @@ pages = [
 
 
 pg = st.navigation(pages)
+_active_page_path = pg.url_path or pg.title
+st.session_state["_page_just_entered"] = st.session_state.get("_active_page") != _active_page_path
+st.session_state["_active_page"] = _active_page_path
+
 pg.run()
