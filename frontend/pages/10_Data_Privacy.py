@@ -15,15 +15,17 @@ setup("Data Privacy Policy")
 st.title("Data Privacy Policy")
 
 st.write(
-    "Retail Lense is designed with reference to New Zealand's "
-    "Privacy Act 2020 and its 13 Information Privacy Principles "
-    "(IPPs)."
+    "Retail Lense is designed with reference to New Zealand's Privacy Act 2020 "
+    "and its 13 Information Privacy Principles (IPPs). The "
+    "entity operating Retail Lense is based in New Zealand. This "
+    "applies regardless of where a user or their business is "
+    "located."
 )
 
 
 st.caption(
     "This page describes the privacy approach used in the "
-    "Retail Lense project."
+    "Retail Lense Platform."
 )
 
 
@@ -48,9 +50,13 @@ st.write(
 )
 
 st.info(
-    "Retail Lense has been designed with reference to the "
-    "13 Information Privacy Principles under the New Zealand "
-    "Privacy Act 2020."
+    "This policy is governed by the 13 Information Privacy "
+    "Principles under the New Zealand Privacy Act 2020, because "
+    "Retail Lense is operated by a New Zealand-based entity. "
+    "Retail Lense's users are not limited to New Zealand — if you "
+    "are located elsewhere, you may have additional or different "
+    "privacy rights under your own local laws, and this policy "
+    "does not limit or replace those rights."
 )
 
 
@@ -127,10 +133,11 @@ with st.expander(
 ):
 
     st.write(
-        "Personal information should be collected for a "
-        "lawful purpose connected with the functions or "
-        "activities of the application and should be "
-        "necessary for that purpose."
+        "We collect personal information only for purposes connected "
+        "with operating Retail Lense — creating and authenticating "
+        "accounts, running the analysis a user requests, and keeping "
+        "the application secure. We do not collect information beyond "
+        "what those purposes require."
     )
 
 
@@ -139,8 +146,11 @@ with st.expander(
 ):
 
     st.write(
-        "Where appropriate, personal information should be "
-        "collected directly from the individual concerned."
+        "Account information (name, username, email, password) is "
+        "collected directly from the individual signing up. Customer "
+        "information contained in a transaction file is provided by "
+        "the uploading user, not collected directly from those "
+        "customers by Retail Lense."
     )
 
 
@@ -149,9 +159,9 @@ with st.expander(
 ):
 
     st.write(
-        "Individuals should be informed about the collection "
-        "of their personal information and relevant matters "
-        "associated with that collection."
+        "This policy and the consent checkbox on the sign-up page "
+        "inform users what information is collected and why, before "
+        "an account is created."
     )
 
 
@@ -160,9 +170,10 @@ with st.expander(
 ):
 
     st.write(
-        "Personal information should be collected fairly and "
-        "in a manner that does not intrude unreasonably on "
-        "the individual's personal affairs."
+        "Information is collected through the application's own "
+        "forms and upload feature — account details typed in by the "
+        "user, and transaction files the user chooses to upload. No "
+        "information is collected through other means."
     )
 
 
@@ -171,9 +182,11 @@ with st.expander(
 ):
 
     st.write(
-        "Reasonable safeguards should be applied to protect "
-        "personal information against loss, unauthorised "
-        "access, use, modification, disclosure, or other misuse."
+        "Passwords are hashed and never stored in plain text. Data in "
+        "transit is encrypted (HTTPS/TLS). Access to stored data is "
+        "restricted by account authentication, and infrastructure "
+        "access is limited to what each part of the system needs to "
+        "function (see Section 8)."
     )
 
 
@@ -182,9 +195,10 @@ with st.expander(
 ):
 
     st.write(
-        "Individuals have rights relating to access to "
-        "personal information held about them, subject to "
-        "the requirements and exceptions of the Privacy Act."
+        "A signed-in user can view their own account details and "
+        "analysis history in the application at any time. Requests "
+        "for other information held about an individual can be made "
+        "by contacting the project team."
     )
 
 
@@ -193,8 +207,9 @@ with st.expander(
 ):
 
     st.write(
-        "Individuals have rights to request correction of "
-        "personal information that is held about them."
+        "A user can update their account details from the Account "
+        "page. Corrections to other information can be requested by "
+        "contacting the project team."
     )
 
 
@@ -203,9 +218,11 @@ with st.expander(
 ):
 
     st.write(
-        "Reasonable steps should be taken to ensure personal "
-        "information is accurate, complete, relevant, and "
-        "up to date before it is used."
+        "Analysis results are generated directly from the data a "
+        "user uploads, so their accuracy depends on the accuracy of "
+        "that upload. Retail Lense validates that a file contains the "
+        "required columns before processing it, and rejects files "
+        "that do not."
     )
 
 
@@ -214,9 +231,12 @@ with st.expander(
 ):
 
     st.write(
-        "Personal information should not be retained for "
-        "longer than required for the purposes for which "
-        "it may lawfully be used."
+        "The raw transaction file a user uploads is deleted "
+        "automatically once its analysis report has been generated — "
+        "it is not needed after that point and is not kept. The "
+        "generated report and account information are kept until the "
+        "user deletes the analysis or the account, respectively (see "
+        "Section 9)."
     )
 
 
@@ -225,9 +245,10 @@ with st.expander(
 ):
 
     st.write(
-        "Personal information should generally only be used "
-        "for the purpose for which it was collected, subject "
-        "to the exceptions provided by the Privacy Act."
+        "Uploaded transaction data is used only to produce the "
+        "analysis report the uploading user requested. It is not used "
+        "for any other purpose, and is not shared with or used to "
+        "benefit any other account."
     )
 
 
@@ -236,9 +257,10 @@ with st.expander(
 ):
 
     st.write(
-        "Personal information should generally only be "
-        "disclosed for appropriate purposes and in accordance "
-        "with the requirements of the Privacy Act."
+        "Personal information is not disclosed to third parties, "
+        "except where sending a limited set of numerical analysis "
+        "results to the AI service used to generate written advice "
+        "(see Section 7), or where disclosure is required by law."
     )
 
 
@@ -247,9 +269,10 @@ with st.expander(
 ):
 
     st.write(
-        "Personal information disclosed outside New Zealand "
-        "should be handled in accordance with the applicable "
-        "requirements of the Privacy Act."
+        "Retail Lense's infrastructure and the AI service it uses may "
+        "process data outside New Zealand. Only aggregated analysis "
+        "metrics are sent to the AI service — never raw transaction "
+        "or customer data (see Section 7)."
     )
 
 
@@ -258,9 +281,10 @@ with st.expander(
 ):
 
     st.write(
-        "Unique identifiers should only be assigned and used "
-        "where appropriate and in accordance with the "
-        "requirements of the Privacy Act."
+        "Retail Lense assigns an internal account ID and analysis ID "
+        "to each user and analysis. These identifiers are used only "
+        "within the application, to link a user to their own accounts "
+        "and analyses, and are not used as identifiers outside it."
     )
 
 
@@ -314,21 +338,21 @@ st.write(
 st.subheader("7. AI-Powered Analysis")
 
 st.write(
-    "Retail Lense uses a Language Model to generate written "
-    "business advice from analysis results and key numerical "
-    "insights."
+    "Retail Lense uses OpenAI's API to generate the written business "
+    "advice shown on an analysis report."
 )
 
 st.write(
-    "The information sent to an external AI service should "
-    "be limited to the information required to generate the "
-    "requested analysis or recommendation."
+    "Only aggregated, numerical analysis results are sent to OpenAI — "
+    "for example, customer counts, average order value, and per-segment "
+    "averages for Recency, Frequency, and Monetary value. The raw "
+    "transaction file, and any individual customer-identifying "
+    "information within it, is never sent to OpenAI."
 )
 
-st.warning(
-    "The final implementation should document the specific "
-    "information sent to the AI service, the service provider, "
-    "and the applicable data-handling arrangements."
+st.write(
+    "OpenAI processes this information under its own API data-usage "
+    "terms and does not use API data to train its models."
 )
 
 
@@ -339,14 +363,19 @@ st.warning(
 st.subheader("8. Data Security")
 
 st.write(
-    "Retail Lense is designed to apply reasonable security "
-    "measures to protect user information and analysis data."
+    "Retail Lense applies the following security measures to protect "
+    "user information and analysis data:"
 )
 
-st.write(
-    "Security controls include appropriate authentication, "
-    "access control, secure application design, and protection "
-    "of stored data as implemented by the application."
+st.markdown(
+    """
+- Passwords are hashed and account sessions use signed, expiring login tokens
+- Repeated failed sign-in attempts are automatically rate-limited and, after enough failures, temporarily blocked
+- Every account only has access to its own analyses and uploaded files
+- Uploaded files are transferred and stored using a temporary, single-use upload link rather than a permanently open channel
+- Data in transit between a user's browser and Retail Lense is encrypted (HTTPS)
+- Access to the underlying cloud infrastructure is restricted to what each system component needs to function
+"""
 )
 
 
@@ -356,15 +385,18 @@ st.write(
 
 st.subheader("9. Data Retention and Deletion")
 
-st.write(
-    "Personal information should only be retained for as "
-    "long as it is required for the purposes for which it "
-    "may lawfully be used."
+st.markdown(
+    """
+- **Raw uploaded files** are deleted automatically once their analysis report has been generated. They are not kept afterward.
+- **Analysis reports** (charts, segments, and AI-generated advice) are kept until the user deletes that analysis from the Analysis Library.
+- **Account information** is kept for as long as the account exists.
+"""
 )
 
 st.write(
-    "Users may delete analysis records through the Analysis "
-    "Library where the deletion functionality is available."
+    "Users can delete an individual analysis at any time from the "
+    "Analysis Library, which also removes its stored report from "
+    "Retail Lense's storage."
 )
 
 
