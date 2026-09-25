@@ -23,7 +23,7 @@ EC2 instance role (trust document: `ec2-runtime-trust.json`):
 | Role | Policy | Why |
 | --- | --- | --- |
 | `retaillen-backend-runtime` | `retaillen-backend-runtime-policy.json` | FastAPI + clustering worker: DynamoDB, S3, SQS, SNS, Secrets Manager. Live role name is `retail-ec2role`. |
-| `retaillen-frontend-runtime` | `frontend-runtime.json` | Streamlit: `secretsmanager:GetSecretValue` on `retaillen/AUTH_API_URL`, `retaillen/REDIS_URL`, `retaillen/REDIS_PASSWORD`, `retaillen/SESSION_COOKIE_PASSWORD`, plus CloudWatch logs on `/retaillen/frontend`. Live role name is `retail-frontend-runtime-role`. No CloudWatch agent policy and no `AmazonSSMManagedInstanceCore`. |
+| `retaillen-frontend-runtime` | `frontend-runtime.json` | Streamlit: `secretsmanager:GetSecretValue` on `retaillen/AUTH_API_URL`, `retaillen/REDIS_URL`, `retaillen/REDIS_PASSWORD`, `retaillen/SESSION_COOKIE_PASSWORD`, plus CloudWatch logs on `/retaillen/frontend`. Live role name is `retail-frontend-runtime-role`. |
 
 Do not give frontend DynamoDB/S3/SQS. Do not put `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or `AWS_PROFILE` on frontend EC2. Omit `AWS_PROFILE` on backend instances (do not set it to an empty string) so boto3 uses instance role `retaillen-backend-runtime`. Containers need IMDSv2 hop limit ≥ 2 to reach the instance role.
 
