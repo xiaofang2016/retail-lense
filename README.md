@@ -15,6 +15,147 @@ docs/         Architecture notes
 
 Compute runs on **EC2**, plus an **auth Lambda** for sign-in and sign-up. Persistence is **DynamoDB + S3** (no RDS / SQL). Local auth still uses FastAPI when `AUTH_API_URL` is empty.
 
+## Architecture
+
+As deployed 25 September 2026, in the default VPC `vpc-0b7f1d790c744fbad` (`172.31.0.0/16`, `us-east-1`). Account `817817875692`. Demo: [www.retaillen.cloud](https://www.retaillen.cloud).
+
+```mermaid
+flowchart TB
+  Browser --> DNS["www.retaillen.cloud"]
+  DNS --> CF[CloudFront]
+  CF -->|HTTPS| ALB["ALB :443<br/>us-east-1a / 1c"]
+
+  subgraph AUTH["Auth — outside VPC"]
+    LAM["Sign-in Lambda<br/>Function URL"]
+    DDBU["DynamoDB<br/>users, OTPs, login history"]
+    SNSOTP["SNS SMS OTP"]
+    LAM --> DDBU
+    LAM --> SNSOTP
+  end
+
+  subgraph VPC["VPC us-east-1"]
+    ALB --> FEA["Frontend 1A<br/>Streamlit :8501<br/>public"]
+    ALB --> FEC["Frontend 1C<br/>Streamlit :8501<br/>public + NAT"]
+
+    subgraph PRIV["Private subnet 172.31.96.0/20 — us-east-1d — no public IP"]
+      API["FastAPI :8000<br/>presigned URLs"]
+      WRK["Worker<br/>K-Means, OpenAI"]
+      REDIS["Redis :6379<br/>same EC2 host"]
+    end
+
+    FEA -->|:8000| API
+    FEC -->|:8000| API
+    FEA --> REDIS
+    FEC --> REDIS
+    API -.->|"route to 1C"| FEC
+    WRK -.->|"route to 1C"| FEC
+  end
+
+  FEA -->|JWT| LAM
+  FEC -->|JWT| LAM
+
+  API -->|presigned PUT| S3U["S3 uploads/"]
+  S3U --> SQS["SQS analysis-queue"]
+  SQS --> WRK
+  WRK --> S3R["S3 results/"]
+  S3R --> COMP["Completion Lambda"]
+  COMP --> DDBA["DynamoDB analyses"]
+  COMP --> SNSDONE["SNS analysis-complete"]
+```
+
+Browser traffic enters only through CloudFront, then the ALB in public subnets `us-east-1a` and `us-east-1c`. The ALB listener is HTTPS :443 (IAM certificate `cloudfront/retaillen-letsencrypt`, expires 24 November 2026; ACM is out of scope). It forwards to Streamlit on both frontends. Sign-in and sign-up go to a Lambda Function URL outside the VPC. Sessions live in Redis on the backend host, so a request that lands on the other frontend keeps the login.
+
+The API, worker, and Redis run on one EC2 in `backend-private-subnet` (`172.31.96.0/20`, `us-east-1d`) with no public IPv4. That subnet has its own route table. `0.0.0.0/0` points at frontend 1C's ENI, not at an Internet Gateway and not at a NAT Gateway. On 1C, source/destination check is off and `iptables` MASQUERADE rewrites traffic from `172.31.96.0/20` to 1C's public address. `retaillen-nat-sg` accepts that subnet only, and only on 1C.
+
+Uploads use a URL signed by the backend role. The browser writes the object to S3. S3 notifies `retaillen-analysis-queue`. The worker on the same host runs RFM and K-Means, writes `results/`, and a completion Lambda marks the job done and publishes `retaillen-analysis-complete`.
+
+Address-level inbound, egress, and deploy diagrams are in [docs/architecture.md](docs/architecture.md). `infra/cloudformation/stack.yaml` is documentation of an older layout. Do not apply it to this account.
+
+**In scope:** EC2, Lambda, ALB, CloudFront, S3, DynamoDB, SQS, SNS, Secrets Manager, CloudWatch, IAM, EICE.
+
+**Forbidden by the brief, and not used:** RDS and any other relational database, SageMaker, Bedrock, WAF, ACM, Shield, Inspector, Redshift, QuickSight, Device Farm.
+
+## Security
+
+### Network
+
+Security groups are the boundary. The live ALB group accepts TCP 443 only from the CloudFront origin-facing prefix list `pl-3b927c52`. That list is every CloudFront edge, so another distribution can still open the ALB; there is no secret origin header. WAF is forbidden, so rate limits are in the application (lockout, HTTP 429, CAPTCHA).
+
+| Group | Inbound | Attached to |
+| --- | --- | --- |
+| `retaillen-alb-sg` | TCP 443 from `pl-3b927c52` | ALB |
+| `retail-frontend-sg` | TCP 8501 from the ALB group | Both frontends |
+| `retaillen-backend-sg` | TCP 8000 from the frontend group | Backend |
+| `retaillen-redis-sg` | TCP 6379 from the frontend group | Backend (Redis on the same host) |
+| `retaillen-nat-sg` | All from `172.31.96.0/20` | Frontend 1C only |
+| `retaillen-ssh-sg` | TCP 22 from `retaillen-eic-sg` | All three EC2 |
+| `retaillen-eic-sg` | none | EICE |
+
+`retaillen-security-group` (TCP 22 from `0.0.0.0/0`) and `retaillen-app-sg` are leftovers. Neither is attached. Do not attach the SSH group.
+
+```mermaid
+flowchart LR
+  CF["CloudFront<br/>pl-3b927c52"] -->|443| ALB["ALB<br/>alb-sg"]
+  ALB -->|8501| FE["Frontends<br/>frontend-sg"]
+  FE -->|8000| API["Backend<br/>backend-sg"]
+  FE -->|6379| RD["Redis<br/>redis-sg"]
+  API -->|172.31.96.0/20| NAT["Frontend 1C<br/>nat-sg"]
+  EICE["EICE<br/>eic-sg"] -->|22| FE
+  EICE -->|22| API
+```
+
+Application security groups allow egress to `0.0.0.0/0`. That egress is how the instances reach Secrets Manager, AWS APIs, the Lambda URL, GitHub, OpenAI, and Gmail on port 587. Frontend 1A uses its own public address for that. The backend uses the 1C route above. 1A is not a second NAT.
+
+### IAM
+
+Instance and Lambda roles call AWS. Laptops do not hold production keys. Git JSON under `infra/iam/` is the policy text; the live backend role name is `retail-ec2role`.
+
+| Principal | May call |
+| --- | --- |
+| `retail-frontend-runtime-role` (1A and 1C) | `GetSecretValue` on `retaillen/AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, `SESSION_COOKIE_PASSWORD` only |
+| `retail-ec2role` (backend) | S3 get on `public/`, `uploads/`, `results/`; put and delete on `uploads/` and `results/`; DynamoDB CRUD on the five tables; SQS on `retaillen-analysis-queue`; `sns:Publish`; secrets `jwt`, `openai`, Redis, SMTP |
+| `retaillen-signin-lambda` | DynamoDB on users, login-history, and otps; `sns:Publish` for SMS; `GetSecretValue` on `retaillen*` |
+| `retail-lamdba-role` (completion) | `UpdateItem` on analyses, SNS on the completion topic, `s3:GetObject` on `results/*` |
+| IAM user `github-eice` | `OpenTunnel` on the EICE endpoint, `SendSSHPublicKey`, describe instances in `us-east-1` |
+
+The frontend role has no S3, DynamoDB, or SQS permission. The browser uploads with a presigned URL signed by `retail-ec2role`. The sign-in Lambda secret prefix `retaillen*` is wider than `retaillen/jwt` and should be tightened. `sns:Publish` on `*` is how SMS is authorized. `UploadServerCertificatePolicy` on the backend role is unused by the API. The frontend role also has the CloudWatch agent policy and `AmazonSSMManagedInstanceCore`; deploys themselves go through EICE, not SSM.
+
+```mermaid
+flowchart LR
+  FE["retail-frontend-runtime-role"] -->|GetSecretValue| SM["Secrets Manager<br/>AUTH, Redis, cookie"]
+  BE["retail-ec2role"] -->|Get Put Delete| S3["S3 retaillen-dev"]
+  BE -->|CRUD| DDB["DynamoDB<br/>five tables"]
+  BE -->|send / receive| SQS["analysis-queue"]
+  BE -->|Publish| SNS["SNS<br/>SMS and analysis-complete"]
+  BE -->|GetSecretValue| SM2["Secrets Manager<br/>jwt, openai, Redis, SMTP"]
+  SL["retaillen-signin-lambda"] -->|users, history, otps| DDB
+  SL -->|Publish SMS| SNS
+  SL -->|GetSecretValue| SM3["Secrets Manager<br/>retaillen/*"]
+  CL["retail-lamdba-role"] -->|UpdateItem analyses| DDB
+  CL -->|Publish| SNS
+  CL -->|GetObject results| S3
+  CI["github-eice"] -->|OpenTunnel| EICE["EICE"]
+```
+
+### Application controls
+
+- Passwords are bcrypt. JWT material is `retaillen/jwt` in Secrets Manager (`JWT_SECRET` is a local fallback only).
+- Five failed logins lock the account for 24 hours (HTTP 423). Repeated failures from one IP return 429. An account owner can block an IP (HTTP 403).
+- Each attempt is stored in `retaillen-login-history` with the browser IP. Streamlit sends `x-retaillen-client-ip` because the Lambda URL's CloudFront hop rewrites `X-Forwarded-For`.
+- SMS 2FA is optional after login. Unbound accounts sign in with a password only.
+- Forgot-password emails a one-time link (48 h). Unknown addresses still return HTTP 200.
+- DynamoDB user updates after login are attribute patches, so a sign-in cannot replace the row and drop `is_admin`.
+- S3 keys are per-user prefixes. The UI does not list another user's prefix. Secrets are not in git. On EC2, `APP_ENV=aws` and empty secret env vars force a role read from Secrets Manager.
+- IMDSv2 is required (hop limit 2) so Docker Compose can assume the instance role.
+
+### Residual risks
+
+1. **1C is a single egress hop.** Backend calls to S3, SQS, Secrets Manager, git, OpenAI, and SMTP stop if 1C stops or if Docker rewrites `iptables`.
+2. **Frontends are on public subnets.** Port 8501 is limited by the frontend group today. Attaching `retaillen-security-group` would publish SSH.
+3. **The sign-in Function URL is public HTTPS.** The control is bcrypt, JWT, and lockout. The URL itself has no IAM auth.
+4. **Sign-in Lambda may read `retaillen*`.** The secret it needs is `retaillen/jwt`.
+5. **The IAM certificate expires on 24 November 2026.**
+
 ## Python
 
 Use **Python 3.12** (CI and Docker). `datetime.UTC` needs 3.11+. macOS Command Line Tools `python3` is often 3.9 and will fail.
@@ -72,6 +213,17 @@ export BACKEND_URL=http://localhost:8000
 .venv/bin/streamlit run app.py
 ```
 
+Windows (PowerShell), from the repo root. `py -3.12` is the Python launcher; venv tools live in `Scripts`, not `bin`.
+
+```powershell
+py -3.12 -m venv backend\.venv; backend\.venv\Scripts\pip install -r backend\requirements.txt
+py -3.12 -m venv frontend\.venv; frontend\.venv\Scripts\pip install -r frontend\requirements.txt
+copy .env.example .env
+cd backend; $env:PYTHONPATH = "."; .\.venv\Scripts\uvicorn api.main:app --reload --port 8000
+```
+
+Second terminal: `cd frontend; $env:BACKEND_URL = "http://localhost:8000"; .\.venv\Scripts\streamlit run app.py`
+
 ### Option B — Docker
 
 Skip the analysis worker for now (it is still a stub):
@@ -80,70 +232,30 @@ Skip the analysis worker for now (it is still a stub):
 docker compose up --build frontend backend
 ```
 
-### Local email (Mailpit)
+### SMTP (password reset)
 
-Forgot-password emails go to a local catch-all inbox, not a real mailbox. [Mailpit](https://mailpit.axllent.org/) listens on SMTP **1025** and serves the inbox UI on **8025**. Official install notes: https://mailpit.axllent.org/docs/install/
+Forgot-password mail goes out through an external SMTP server. Restart the API after changing `.env`. An empty `SMTP_HOST` keeps mail in memory (what pytest uses) and does not send anything.
 
-#### 1. Install and start Mailpit
-
-**Recommended — Docker Compose** (image is already in `docker-compose.yml`):
-
-```bash
-# needs Docker Desktop (or another Docker engine) running
-docker compose up -d mailpit
-docker compose ps mailpit
-```
-
-Stop later with `docker compose stop mailpit`. Remove the container with `docker compose down`.
-
-**macOS — Homebrew** (no Docker):
-
-```bash
-brew install mailpit
-mailpit
-```
-
-Leave that process running. Default ports are the same: SMTP `127.0.0.1:1025`, UI `http://127.0.0.1:8025`.
-
-**Standalone binary** (Linux / other): download a release from https://github.com/axllent/mailpit/releases and run `./mailpit`.
-
-#### 2. Point the API at Mailpit
-
-Put this in the repo-root `.env`, then **restart the backend** so settings reload:
+Gmail on port 587 with STARTTLS, which is what production uses:
 
 ```
-SMTP_HOST=127.0.0.1
-SMTP_PORT=1025
-SMTP_FROM_EMAIL=noreply@retaillen.local
-SMTP_AUTH_STRATEGY=NONE
+BASE_URL=http://localhost:8501
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_FROM_NAME=Retail Lense
+SMTP_FROM_EMAIL=you@gmail.com
+SMTP_AUTH_STRATEGY=TLS
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=app-password
 ```
 
-If **backend and Mailpit both run in Compose**, use the service name instead of localhost:
-
-```
-SMTP_HOST=mailpit
-SMTP_PORT=1025
-SMTP_FROM_EMAIL=noreply@retaillen.local
-SMTP_AUTH_STRATEGY=NONE
-```
-
-Leave `SMTP_HOST` empty to keep the in-memory outbox (what the pytest suite uses).
-
-On EC2 with real SMTP (`SMTP_AUTH_STRATEGY` not `NONE`), leave `SMTP_USER` and `SMTP_PASSWORD` empty so backend reads `retaillen/SMTP_USER` and `retaillen/SMTP_PASSWORD`.
-
-#### 3. Check the inbox
-
-1. Open http://localhost:8025 — you should see an empty Mailpit inbox.
-2. In the UI, **Sign in → Forgot password → Send reset link** (use a registered email).
-3. The message appears in Mailpit. The reset link is `http://localhost:8501/Reset_Password?token=...` (Streamlit page `pages/3_Reset_Password.py`, not a FastAPI route).
-4. Unknown emails still return HTTP 200 and **do not** send a message (anti-enumeration).
+`SMTP_AUTH_STRATEGY=SSL` connects with SMTPS instead of STARTTLS. `BASE_URL` is the front of the reset link (`/Reset_Password?token=...`). On EC2 set `BASE_URL=https://www.retaillen.cloud` and leave `SMTP_USER` and `SMTP_PASSWORD` empty so the backend reads `retaillen/SMTP_USER` and `retaillen/SMTP_PASSWORD` from Secrets Manager. Unknown addresses still return HTTP 200 and send nothing.
 
 ### URLs
 
 - UI: http://localhost:8501
 - API docs: http://localhost:8000/docs
 - Health: http://localhost:8000/health
-- Mailpit inbox: http://localhost:8025
 
 Sidebar pages: Home, Sign in (forgot-password expander), Sign up, Reset password, Account (profile + login history), Reference, Upload.
 
@@ -198,7 +310,7 @@ Auth (users, login history, reset tokens) is stored in DynamoDB. Analyses/OTP ta
 
 ### Local — DynamoDB Local (no AWS account)
 
-Mailpit is only SMTP. Users still need a database, or register / forgot-password vanish when the API restarts.
+Users still need a database, or register and forgot-password vanish when the API restarts.
 
 ```bash
 # 1. start the local DynamoDB (host port 8001 — 8000 is the API)
@@ -275,16 +387,17 @@ export AWS_PROFILE=mike-assume-infra AWS_REGION=us-east-1
 
 Set `JWT_SECRET_NAME=retaillen/jwt` on Lambda and backend EC2. Their execution roles need `secretsmanager:GetSecretValue` for that secret; do not put the secret value in an AWS environment variable. On EC2 leave `AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, and `SESSION_COOKIE_PASSWORD` out of `.env` — Streamlit reads Secrets Manager `retaillen/<ENV_VAR>` via instance role `retaillen-frontend-runtime`. Locally keep those four values in `.env` so a laptop `AWS_PROFILE` never fetches production secrets. The same Lambda handles `POST /auth/signin` and `POST /auth/register`. Leave `AUTH_API_URL` empty locally so auth stays on FastAPI. The function uses role `retaillen-signin-lambda`, not `AWS_PROFILE`. `GET /auth/login-history` stays on FastAPI.
 
-## Production (EC2, Amazon Linux)
+## Production (EC2, Ubuntu)
 
 CloudFormation (`infra/cloudformation/stack.yaml`) documents the CLI-built layout and is **not** applied to this account. `infra/scripts/deploy.sh` exits without creating a stack. The SSH pipeline below is the **test environment**: a merge (push) to **`dev`** deploys the app. No SSM.
 
 ### One-time on the instance
 
-Amazon Linux as user `mike`. App dir: `/home/mike/retail-lense`.
+Ubuntu as user `mike`. App dir: `/home/mike/retail-lense`.
 
 ```bash
-sudo dnf install -y git python3.12 python3.12-pip
+sudo apt-get update
+sudo apt-get install -y git python3.12 python3.12-venv
 
 # Deploy key: GitHub repo → Settings → Deploy keys (read-only)
 mkdir -p ~/.ssh
@@ -341,47 +454,6 @@ Port **80** needs root (or `setcap`). Better: Streamlit on 8501, ALB/nginx on 80
 
 Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DDB_ENDPOINT=http://dynamodb:8000`.
 
-
-## AWS services in scope
-
-Address-level paths (inbound, egress, and deploy) are in [docs/architecture.md](docs/architecture.md).
-
-| Service | Role |
-| --- | --- |
-| EC2 | Streamlit + FastAPI + analysis workers |
-| Lambda | Sign-in and sign-up via one Function URL; PutItem users and login history |
-| ALB | HTTPS termination, traffic distribution |
-| S3 | Public UCI sample, per-user uploads, exported reports |
-| DynamoDB | Users, login history, password-reset tokens, OTPs, analysis metadata |
-| IAM | Least-privilege instance role and per-member roles |
-| CloudWatch | Logs, metrics, billing alarms |
-| SNS | SMS OTP + analysis-complete notifications |
-| Secrets Manager | JWT, OpenAI, `retaillen/AUTH_API_URL`, Redis, session cookie |
-| SQS (optional) | Decouple upload from clustering on EC2 |
-| CloudFront (optional) | CDN in front of the ALB |
-
-**Assignment forbids:** RDBMS, SageMaker, Bedrock, WAF, ACM, Device Farm, Redshift, QuickSight, Shield, Inspector.
-
-**This repo does not use:** SSM. Secrets live in Secrets Manager (`JWT_SECRET` is a local-only fallback). Sign-in and sign-up can run on Lambda; IAM user `mike` needs `infra/iam/signin-lambda-deployer.json` to deploy it.
-
-## Analysis flow
-
-1. Signed-in user uploads CSV/Excel matching the required schema.
-2. FastAPI stores the file in S3 under `uploads/{user_id}/` and writes an `Analyses` item in DynamoDB.
-3. An EC2 worker validates the file, runs RFM + K-Means, stores results in S3, updates DynamoDB, and publishes SNS.
-
-## Security notes
-
-- Passwords hashed with bcrypt; JWT from Secrets Manager (or `JWT_SECRET` locally).
-- Failed logins increment a per-user counter; after 5 failures the account is locked for 24 hours (423).
-- Optional SMS 2FA: bind a phone on Account after login. Unbound accounts still sign in with password only.
-- Forgot-password emails a one-time link (48h). Unknown emails still return 200.
-- Every attempt is stored as login history with client IP (`X-Forwarded-For` when present).
-- An account owner can block an IP; later sign-ins from that IP to that account return 403.
-- Too many failures from one IP return 429.
-- Streamlit talks to FastAPI, Redis, and (on EC2 only) Secrets Manager `retaillen/<ENV_VAR>`.
-- Per-user S3 prefixes; results private to the owning account.
-- No secrets in git.
 
 ## Dataset
 
