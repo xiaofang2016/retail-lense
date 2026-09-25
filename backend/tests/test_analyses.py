@@ -143,7 +143,7 @@ def test_create_allows_file_at_exact_limit(client):
     token = _register_and_login(client, "exactlimituser")
     headers = {"Authorization": f"Bearer {token}"}
 
-    at_limit_bytes = 30 * 1024 * 1024
+    at_limit_bytes = 25 * 1024 * 1024  # default MAX_UPLOAD_MB is 25
 
     response = client.post(
         "/analyses",
