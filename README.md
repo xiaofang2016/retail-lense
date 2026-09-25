@@ -108,17 +108,17 @@ Application security groups allow egress to `0.0.0.0/0`. That egress is how the 
 
 ### IAM
 
-Instance and Lambda roles call AWS. Laptops do not hold production keys. The policy text is the JSON under `infra/iam/`. The live backend role name is `retail-ec2role`; its document is `retaillen-backend-runtime-policy.json`. `backend-runtime.json` is an older copy (no `s3:DeleteObject`, no SMS protocol condition) and is not the text below.
+Instance and Lambda roles call AWS. Laptops do not hold production keys. The policy text is the JSON under `infra/iam/`. The live backend role name is `retail-ec2role`; its document is `retaillen-backend-runtime-policy.json`.
 
 | Principal | May call |
 | --- | --- |
-| `retail-frontend-runtime-role` (1A and 1C) | `GetSecretValue` on `retaillen/AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, `SESSION_COOKIE_PASSWORD` only |
+| `retail-frontend-runtime-role` (1A and 1C) | `GetSecretValue` on `retaillen/AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, `SESSION_COOKIE_PASSWORD` only; logs on `/retaillen/frontend` |
 | `retail-ec2role` (backend) | S3 get on `public/`, `uploads/`, `results/`; put and delete on `uploads/` and `results/`; DynamoDB CRUD on the five tables; SQS on `retaillen-analysis-queue`; `sns:Publish` to `retaillen-analysis-complete`, and to SMS only when `sns:Protocol` is `sms`; secrets `jwt`, `openai`, Redis, SMTP |
 | `retaillen-signin-lambda` | DynamoDB on users, login-history, and otps; `sns:Publish` only when `sns:Protocol` is `sms`; `GetSecretValue` on `retaillen/jwt-*` only |
 | `retail-lamdba-role` (completion) | `UpdateItem` on analyses, SNS on the completion topic, `s3:GetObject` on `results/*` |
 | IAM user `github-eice` | `OpenTunnel` on EICE endpoints in this account; `SendSSHPublicKey` on instances only as OS user `mike`; `DescribeInstances` and `DescribeInstanceConnectEndpoints` only in `us-east-1` |
 
-The frontend role has no S3, DynamoDB, or SQS permission. The browser uploads with a presigned URL signed by `retail-ec2role`. The sign-in Lambda reads `retaillen/jwt-*` only. SMS has no topic ARN, so `sns:Publish` uses `*` with `sns:Protocol` equal to `sms`. Analysis-complete publish is limited to that topic. `UploadServerCertificatePolicy` on the backend role is unused by the API. The frontend role also has the CloudWatch agent policy and `AmazonSSMManagedInstanceCore`; deploys themselves go through EICE, not SSM.
+The live frontend role has one policy, `frontend-runtime.json`. It has no S3, DynamoDB, or SQS permission, and `CloudWatchAgentServerPolicy` and `AmazonSSMManagedInstanceCore` are not attached. Container logs use the four `logs:*` actions on `/retaillen/frontend`. The browser uploads with a presigned URL signed by `retail-ec2role`. The sign-in Lambda reads `retaillen/jwt-*` only. SMS has no topic ARN, so `sns:Publish` uses `*` with `sns:Protocol` equal to `sms`. Analysis-complete publish is limited to that topic. `UploadServerCertificatePolicy` on the backend role is unused by the API. Deploys use EICE.
 
 ```mermaid
 flowchart LR
@@ -150,9 +150,9 @@ flowchart LR
 
 ### Security considerations
 
-Checked against the live security groups, the 25 September 2026 instance metadata, and `infra/iam/*.json`.
+Checked against the live roles on 26 September 2026, the 25 September 2026 instance metadata, and `infra/iam/*.json`.
 
-1. **Least-privilege IAM.** `retail-frontend-runtime-role` may `GetSecretValue` on four secrets only: `retaillen/AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, `SESSION_COOKIE_PASSWORD` (`frontend-runtime.json`). That policy has no S3, DynamoDB, or SQS. The role also has the CloudWatch agent policy and `AmazonSSMManagedInstanceCore`; deploys do not use SSM. `retail-ec2role` is limited to the `public/`, `uploads/`, and `results/` prefixes, the five DynamoDB tables, and `retaillen-analysis-queue`. App containers do not receive long-lived access keys; they use the instance role. The CI user `github-eice` is a separate key, stored in GitHub Actions, and it cannot call S3 or DynamoDB.
+1. **Least-privilege IAM.** `retail-frontend-runtime-role` has one customer-managed policy, `frontend-runtime.json`. It may `GetSecretValue` on four secrets only: `retaillen/AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, `SESSION_COOKIE_PASSWORD`. That policy has no S3, DynamoDB, or SQS. It may write CloudWatch logs only for `/retaillen/frontend`. `CloudWatchAgentServerPolicy` and `AmazonSSMManagedInstanceCore` are not attached. `retail-ec2role` uses `retaillen-backend-runtime-policy.json`: the `public/`, `uploads/`, and `results/` prefixes, the five DynamoDB tables, `retaillen-analysis-queue`, and `sns:Publish` only when `sns:Protocol` is `sms` or the target is `retaillen-analysis-complete`. App containers do not receive long-lived access keys; they use the instance role. The CI user `github-eice` is a separate key, stored in GitHub Actions, and it cannot call S3 or DynamoDB.
 2. **IMDSv2.** All three running instances have `HttpTokens=required` and hop limit 2. IMDSv1 is off. Hop 2 is what lets a container reach the instance role.
 3. **Secrets Manager.** JWT, OpenAI, Redis, SMTP, the session-cookie password, and the sign-in Lambda URL are not in git. On EC2 those `.env` values stay empty and the instance role calls `GetSecretValue`. The sign-in Lambda reads `retaillen/jwt-*` only.
 4. **Security groups.** Browsers reach CloudFront. The ALB accepts TCP 443 only from the CloudFront origin-facing prefix list `pl-3b927c52`, not from `0.0.0.0/0`. Another distribution can still connect: there is no secret origin header. Users cannot open Streamlit themselves; only the ALB group may connect to the frontends on 8501. FastAPI 8000 accepts traffic only from the frontend group. Redis 6379 is the same: frontend group only, on the backend host. `retaillen-nat-sg` allows the private subnet `172.31.96.0/20` onto 1C only.

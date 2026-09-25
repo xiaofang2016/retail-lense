@@ -255,6 +255,16 @@ Resources:
                   - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:retaillen/REDIS_URL-*
                   - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:retaillen/REDIS_PASSWORD-*
                   - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:retaillen/SESSION_COOKIE_PASSWORD-*
+              - Sid: FrontendContainerLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/retaillen/frontend
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/retaillen/frontend:log-stream:*
 
   FrontendInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -325,6 +335,9 @@ Resources:
                 Effect: Allow
                 Action: sns:Publish
                 Resource: "*"
+                Condition:
+                  StringEquals:
+                    sns:Protocol: sms
               - Sid: SnsAnalysisComplete
                 Effect: Allow
                 Action:
