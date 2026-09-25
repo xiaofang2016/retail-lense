@@ -292,9 +292,18 @@ def create_analysis(token: str, file_extension: str, file_name: str, file_size_b
     )
 
 
-def upload_bytes_to_presigned_url(upload_url: str, body: bytes, content_type: str) -> None:
-    """PUT straight to S3 using the presigned URL -- bypasses the backend entirely."""
-    response = httpx.put(upload_url, content=body, headers={"Content-Type": content_type}, timeout=60.0)
+def upload_bytes_to_presigned_url(upload_url: str, content, content_type: str, content_length: int) -> None:
+    """PUT straight to S3 using the presigned URL -- bypasses the backend entirely.
+
+    `content` is a file-like, readable object (e.g. Streamlit's UploadedFile),
+    passed straight to httpx to stream in chunks 
+    """
+    response = httpx.put(
+        upload_url,
+        content=content,
+        headers={"Content-Type": content_type, "Content-Length": str(content_length)},
+        timeout=60.0,
+    )
     if response.is_error:
         raise ApiError(response.status_code, response.text or f"HTTP {response.status_code}")
 

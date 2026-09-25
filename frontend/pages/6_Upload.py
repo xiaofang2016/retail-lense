@@ -2,13 +2,35 @@
 
 from pathlib import Path
 
+import openpyxl
 import pandas as pd
 import streamlit as st
 
 from components.style import setup
 from services import api_client, session
 
-MAX_UPLOAD_MB = 30
+
+def _excel_row_col_count(uploaded_file) -> tuple[int, int] | None:
+    """Row/column count for an xlsx file without loading its data into memory.
+
+    Reads the worksheet's own <dimension> tag via openpyxl's read_only mode --
+    near-instant, since it doesn't parse cell contents. Returns None (rather
+    than falling back to a full scan) if a file doesn't carry that tag, since
+    a full scan would reintroduce the same memory cost we're avoiding.
+    """
+    uploaded_file.seek(0)
+    workbook = openpyxl.load_workbook(uploaded_file, read_only=True, data_only=True)
+    try:
+        worksheet = workbook.active
+        max_row, max_col = worksheet.max_row, worksheet.max_column
+        if max_row is None or max_col is None:
+            return None
+        return max_row - 1, max_col  # exclude header row
+    finally:
+        workbook.close()
+        uploaded_file.seek(0)
+
+MAX_UPLOAD_MB = 25
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 setup("Upload Data")
@@ -164,15 +186,44 @@ if uploaded_file is not None:
 
         try:
 
-            if uploaded_file.name.lower().endswith(".csv"):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
+            is_csv = uploaded_file.name.lower().endswith(".csv")
 
-            st.write(
-                f"**Rows:** {len(df):,}  |  "
-                f"**Columns:** {len(df.columns)}"
-            )
+            
+            if is_csv:
+                df = pd.read_csv(uploaded_file, nrows=0)
+            else:
+                # openpyxl generally has to open the whole workbook regardless
+                # of nrows, since XLSX isn't line-streamable the way CSV is.
+                # this still avoids building a full DataFrame, but saves less
+                # memory than the CSV path.
+                df = pd.read_excel(uploaded_file, nrows=0)
+
+            if is_csv:
+                # Cheap row count: stream through the file counting newlines
+                # instead of holding every row in memory via a full parse.
+                uploaded_file.seek(0)
+                row_count = sum(1 for _ in uploaded_file) - 1  # exclude header
+                st.write(
+                    f"**Rows:** {row_count:,}  |  "
+                    f"**Columns:** {len(df.columns)}"
+                )
+            else:
+                excel_dims = _excel_row_col_count(uploaded_file)
+                if excel_dims is not None:
+                    excel_row_count, excel_col_count = excel_dims
+                    st.write(
+                        f"**Rows:** {excel_row_count:,}  |  "
+                        f"**Columns:** {excel_col_count:,}"
+                    )
+                else:
+                    st.write(f"**Columns:** {len(df.columns)}")
+                    st.caption(
+                        "Row count isn't shown for this Excel file -- it doesn't "
+                        "carry the sheet-size information needed to report it "
+                        "without loading the full workbook into memory."
+                    )
+
+            uploaded_file.seek(0)
 
             required = {
                 "InvoiceNo",
@@ -277,11 +328,15 @@ if st.button(
                 session.token(), file_extension, uploaded_file.name, uploaded_file.size
             )
 
-            # Upload the raw bytes straight to S3 -- the backend never sees the file body.
+            # Upload straight to S3 -- the backend never sees the file body.
+            # Stream from the file object itself (not .getvalue()) so we don't
+            # hold a second full-size copy of the file in memory during the PUT.
+            uploaded_file.seek(0)
             api_client.upload_bytes_to_presigned_url(
                 created["upload_url"],
-                uploaded_file.getvalue(),
+                uploaded_file,
                 content_type,
+                uploaded_file.size,
             )
 
             # Remember the analysis_id so the Report page can poll its status.
