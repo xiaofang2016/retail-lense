@@ -85,6 +85,27 @@ with st.form("register"):
     )
 
     # -----------------------------------------------------
+    # Consent to data collection
+    # -----------------------------------------------------
+
+    consent_error = st.session_state.pop(
+        "signup_consent_error",
+        None,
+    )
+
+    if consent_error:
+        st.error(consent_error)
+
+    
+    st.markdown(
+        "Please review our [Privacy Policy](/data_privacy_policy) before continuing."
+    )
+
+    agree_to_privacy = st.checkbox(
+        "I agree to the collection and use of my data as described in the Privacy Policy above."
+    )
+
+    # -----------------------------------------------------
     # Create account button
     # -----------------------------------------------------
 
@@ -131,7 +152,20 @@ if submitted:
         st.rerun()
 
     # -----------------------------------------------------
-    # CAPTCHA passed
+    # Consent to data collection required
+    # -----------------------------------------------------
+
+    if not agree_to_privacy:
+        st.session_state[
+            "signup_consent_error"
+        ] = (
+            "Please agree to the Privacy Policy before creating an account."
+        )
+
+        st.rerun()
+
+    # -----------------------------------------------------
+    # CAPTCHA passed, consent given
     # Continue with registration
     # -----------------------------------------------------
 
