@@ -1,9 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Retail Lense (COMPX527) — documentation of the production layout.
-  Live account 817817875692 was provisioned with the AWS CLI. Do not create
-  this stack there (duplicate VPC, ALB, S3, DynamoDB, EC2). Application
-  deploys stay on GitHub Actions + EICE. No ACM, WAF, RDS, or SSM.
+  Retail Lense (COMPX527). New VPC, private backend subnet, 1C instance NAT,
+  CloudFront-only ALB ingress. Do not deploy into 817817875692.
+  Application updates stay on GitHub Actions + EICE. No ACM, WAF, or RDS.
 
 Parameters:
   ProjectName:
@@ -26,6 +25,10 @@ Parameters:
   BucketName:
     Type: String
     Default: retaillen-dev
+  CloudFrontPrefixListId:
+    Type: String
+    Default: pl-3b927c52
+    Description: com.amazonaws.global.cloudfront.origin-facing in us-east-1.
 
 Resources:
   Vpc:
@@ -95,10 +98,10 @@ Resources:
       VpcId: !Ref Vpc
       CidrBlock: 10.0.2.0/24
       AvailabilityZone: !Sub ${AWS::Region}d
-      MapPublicIpOnLaunch: true
+      MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub ${ProjectName}-public-1d
+          Value: !Sub ${ProjectName}-private-1d
 
   RtAssoc1a:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -112,23 +115,38 @@ Resources:
       SubnetId: !Ref Subnet1c
       RouteTableId: !Ref PublicRouteTable
 
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-private-rt
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NetworkInterfaceId: !Ref NatEni
+
   RtAssoc1d:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref Subnet1d
-      RouteTableId: !Ref PublicRouteTable
+      RouteTableId: !Ref PrivateRouteTable
 
   AlbSg:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: ALB 443 from the internet
+      GroupDescription: ALB 443 from CloudFront origin-facing prefix list
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          CidrIp: 0.0.0.0/0
-          Description: HTTPS
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+          Description: CloudFront origin-facing
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-alb-sg
@@ -703,25 +721,77 @@ Resources:
         - Key: Name
           Value: !Sub ${ProjectName}-frontend-us-1a
 
+  NatSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Forward private subnet traffic for instance NAT on 1C
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: !GetAtt Subnet1d.CidrBlock
+          Description: private subnet to 1C NAT
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-nat-sg
+
+  NatEni:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref Subnet1c
+      GroupSet:
+        - !Ref FrontendSg
+        - !Ref SshSg
+        - !Ref NatSg
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-nat-eni
+
+  NatEip:
+    Type: AWS::EC2::EIP
+    DependsOn: IgwAttach
+    Properties:
+      Domain: vpc
+
+  NatEipAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      NetworkInterfaceId: !Ref NatEni
+
   Frontend1c:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !Ref AmiId
-      SubnetId: !Ref Subnet1c
       IamInstanceProfile: !Ref FrontendInstanceProfile
-      SecurityGroupIds:
-        - !Ref FrontendSg
-        - !Ref SshSg
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref NatEni
+          DeviceIndex: 0
       MetadataOptions:
         HttpTokens: required
         HttpPutResponseHopLimit: 2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -eux
+          CIDR="${Subnet1d.CidrBlock}"
+          sysctl -w net.ipv4.ip_forward=1
+          echo net.ipv4.ip_forward=1 > /etc/sysctl.d/99-retaillen-forward.conf
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent
+          IFACE=$(ip -4 route | awk '/default/ {print $5; exit}')
+          iptables -I FORWARD 1 -d "$CIDR" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+          iptables -I FORWARD 1 -s "$CIDR" -j ACCEPT
+          iptables -t nat -A POSTROUTING -s "$CIDR" -o "$IFACE" -j MASQUERADE
+          netfilter-persistent save
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-frontend-us-1c
 
   Backend1d:
     Type: AWS::EC2::Instance
+    DependsOn: PrivateDefaultRoute
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !Ref AmiId
@@ -823,9 +893,50 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub ${ProjectName} in front of the ALB
+        Origins:
+          - Id: alb
+            DomainName: !GetAtt Alb.DNSName
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              HTTPSPort: 443
+        DefaultCacheBehavior:
+          TargetOriginId: alb
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - POST
+            - PATCH
+            - DELETE
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: false
+          ForwardedValues:
+            QueryString: true
+            Headers:
+              - "*"
+            Cookies:
+              Forward: all
+          MinTTL: 0
+          DefaultTTL: 0
+          MaxTTL: 0
+        PriceClass: PriceClass_100
+
 Outputs:
   AlbDnsName:
     Value: !GetAtt Alb.DNSName
+  CloudFrontDomain:
+    Value: !GetAtt Distribution.DomainName
   SigninFunctionUrl:
     Value: !GetAtt SigninUrl.FunctionUrl
   EiceId:

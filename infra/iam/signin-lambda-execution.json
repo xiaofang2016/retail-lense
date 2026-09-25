@@ -33,7 +33,12 @@
       "Sid": "SmsOtp",
       "Effect": "Allow",
       "Action": "sns:Publish",
-      "Resource": "*"
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "sns:Protocol": "sms"
+        }
+      }
     },
     {
       "Sid": "ReadJwtSecret",

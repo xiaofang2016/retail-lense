@@ -8,7 +8,7 @@ Secure multi-user cloud app for small retailers: RFM + K-Means customer segmenta
 frontend/     Streamlit UI (accounts, reference analysis, upload, reports)
 backend/      FastAPI on EC2 + background workers + ML pipeline
 infra/        IAM JSON, EICE/EC2 deploy scripts, systemd units,
-              documentation CloudFormation (do not apply to the live account)
+              CloudFormation for a new account (do not apply to 817817875692)
 data/samples/ Tiny schema samples (not the full UCI dataset)
 docs/         Architecture notes
 ```
@@ -210,7 +210,7 @@ Terminal 2 — Streamlit UI:
 ```bash
 cd frontend
 export BACKEND_URL=http://localhost:8000
-.venv/bin/streamlit run app.py
+.venv/bin/streamlit run main.py
 ```
 
 Windows (PowerShell), from the repo root. `py -3.12` is the Python launcher; venv tools live in `Scripts`, not `bin`.
@@ -222,14 +222,12 @@ copy .env.example .env
 cd backend; $env:PYTHONPATH = "."; .\.venv\Scripts\uvicorn api.main:app --reload --port 8000
 ```
 
-Second terminal: `cd frontend; $env:BACKEND_URL = "http://localhost:8000"; .\.venv\Scripts\streamlit run app.py`
+Second terminal: `cd frontend; $env:BACKEND_URL = "http://localhost:8000"; .\.venv\Scripts\streamlit run main.py`
 
 ### Option B — Docker
 
-Skip the analysis worker for now (it is still a stub):
-
 ```bash
-docker compose up --build frontend backend
+docker compose up --build frontend backend worker
 ```
 
 ### SMTP (password reset)
@@ -306,11 +304,11 @@ cd backend && PYTHONPATH=. pytest tests/
 
 ## DynamoDB (local or AWS)
 
-Auth (users, login history, reset tokens) is stored in DynamoDB. Analyses/OTP tables are created now; the analysis workers still write stubs.
+Auth (users, login history, reset tokens, OTPs, analyses) is stored in DynamoDB. The worker consumes SQS and writes results to S3.
 
 ### Local — DynamoDB Local (no AWS account)
 
-Users still need a database, or register and forgot-password vanish when the API restarts.
+Users still need a database, or register and forgot-password vanish when the API restarts. The DynamoDB Local service in `docker-compose.yml` is commented out; uncomment it before the command below.
 
 ```bash
 # 1. start the local DynamoDB (host port 8001 — 8000 is the API)
@@ -370,7 +368,7 @@ If the machine has **several profiles** and `[default]` is the wrong IAM user, s
 AWS_PROFILE=your-profile-name
 ```
 
-List names with `aws configure list-profiles`. On a laptop, omit `AWS_PROFILE` when `[default]` is already the course account. On backend EC2 omit it entirely (do not write `AWS_PROFILE=`) so containers use instance role `retaillen-backend-runtime`. A blank value or a named profile that is not in the container is stripped and boto3 falls through to that role.
+List names with `aws configure list-profiles`. On a laptop, omit `AWS_PROFILE` when `[default]` is already the course account. On backend EC2 omit it entirely (do not write `AWS_PROFILE=`) so containers use instance role `retail-ec2role`. A blank value or a named profile that is not in the container is stripped and boto3 falls through to that role.
 
 Do not put access keys in `.env`. A process-level `AWS_PROFILE=...` overrides `.env` (`setdefault`). Restart the API after changing it.
 
@@ -378,57 +376,26 @@ One-off for the table script: `AWS_PROFILE=your-profile AWS_REGION=us-east-1 ./i
 
 ### Sign-in Lambda
 
-No CloudFormation and no API Gateway. Deploy with the AWS CLI (or the console steps in `infra/scripts/deploy_signin_lambda.sh`). Farhan should attach `infra/iam/signin-lambda-deployer.json` if the current profile cannot create the function.
+The live function was deployed with `infra/scripts/deploy_signin_lambda.sh` (no API Gateway). `infra/cloudformation/stack.yaml` can create the same function in a new account. Farhan should attach `infra/iam/signin-lambda-deployer.json` if the current profile cannot create the function.
 
 ```bash
 export AWS_PROFILE=mike-assume-infra AWS_REGION=us-east-1
 ./infra/scripts/deploy_signin_lambda.sh
 ```
 
-Set `JWT_SECRET_NAME=retaillen/jwt` on Lambda and backend EC2. Their execution roles need `secretsmanager:GetSecretValue` for that secret; do not put the secret value in an AWS environment variable. On EC2 leave `AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, and `SESSION_COOKIE_PASSWORD` out of `.env` — Streamlit reads Secrets Manager `retaillen/<ENV_VAR>` via instance role `retaillen-frontend-runtime`. Locally keep those four values in `.env` so a laptop `AWS_PROFILE` never fetches production secrets. The same Lambda handles `POST /auth/signin` and `POST /auth/register`. Leave `AUTH_API_URL` empty locally so auth stays on FastAPI. The function uses role `retaillen-signin-lambda`, not `AWS_PROFILE`. `GET /auth/login-history` stays on FastAPI.
+Set `JWT_SECRET_NAME=retaillen/jwt` on Lambda and backend EC2. Their execution roles need `secretsmanager:GetSecretValue` for that secret; do not put the secret value in an AWS environment variable. On EC2 leave `AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, and `SESSION_COOKIE_PASSWORD` out of `.env` — Streamlit reads Secrets Manager `retaillen/<ENV_VAR>` via instance profile `retail-frontend-runtime-role`. Locally keep those four values in `.env` so a laptop `AWS_PROFILE` never fetches production secrets. The same Lambda handles `POST /auth/signin` and `POST /auth/register`. Leave `AUTH_API_URL` empty locally so auth stays on FastAPI. The function uses role `retaillen-signin-lambda`, not `AWS_PROFILE`. `GET /auth/login-history` stays on FastAPI.
 
-## Production (EC2, Ubuntu)
+## Production (EC2)
 
-CloudFormation (`infra/cloudformation/stack.yaml`) documents the CLI-built layout and is **not** applied to this account. `infra/scripts/deploy.sh` exits without creating a stack. The SSH pipeline below is the **test environment**: a merge (push) to **`dev`** deploys the app. No SSM.
+A merge to **`dev`** deploys application code with GitHub Actions over the EC2 Instance Connect Endpoint. `infra/scripts/deploy.sh` creates a **new** CloudFormation stack only when `CONFIRM=deploy`. It refuses account `817817875692`, where the VPC, ALB, and instances already exist. Deploys do not use SSM.
+
+Live images: frontend 1C is Ubuntu 26.04. Frontend 1A is Amazon Linux 2023 (`al2023-ami-ecs-neuron`). The backend instance uses the custom AMI `retaillen-backend-private`. A new stack from `infra/cloudformation/stack.yaml` launches Ubuntu 26.04.
+
+App directories on the instances: frontend `/home/mike/retail-lense`, backend `/home/mike/retail-lense/retail-lense`. Both run Docker Compose, not the systemd units.
 
 ### One-time on the instance
 
-Ubuntu as user `mike`. App dir: `/home/mike/retail-lense`.
-
-```bash
-sudo apt-get update
-sudo apt-get install -y git python3.12 python3.12-venv
-
-# Deploy key: GitHub repo → Settings → Deploy keys (read-only)
-mkdir -p ~/.ssh
-# put the private key in ~/.ssh/id_ed25519 (chmod 600)
-ssh-keyscan github.com >> ~/.ssh/known_hosts
-
-cd /home/mike/retail-lense
-git checkout dev
-
-python3.12 -m venv backend/.venv
-backend/.venv/bin/pip install -r backend/requirements.txt
-python3.12 -m venv frontend/.venv
-frontend/.venv/bin/pip install -r frontend/requirements.txt
-
-# Repo-root .env stays on the box only (APP_ENV=aws, empty DDB_ENDPOINT).
-# Backend EC2 uses instance role retaillen-backend-runtime (no AWS_PROFILE).
-# Frontend EC2: instance role retaillen-frontend-runtime only.
-# edit .env: BASE_URL, SMTP, JWT_SECRET_NAME; omit AUTH_API_URL / Redis / cookie secrets.
-
-sudo cp infra/systemd/retaillen-api.service infra/systemd/retaillen-ui.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now retaillen-api retaillen-ui
-curl -s http://127.0.0.1:8000/health
-```
-
-Give `mike` passwordless restart (once):
-
-```bash
-echo 'mike ALL=(root) NOPASSWD: /bin/systemctl restart retaillen-api, /bin/systemctl restart retaillen-ui, /bin/systemctl is-active retaillen-api, /bin/systemctl is-active retaillen-ui, /bin/systemctl status retaillen-api' | sudo tee /etc/sudoers.d/retaillen
-sudo chmod 440 /etc/sudoers.d/retaillen
-```
+User `mike`. Install Docker and the Compose plugin, then clone the repo and check out `dev`. Copy `.env` onto the box only (`APP_ENV=aws`, empty `DDB_ENDPOINT`). Backend uses `retail-ec2role`. Each frontend uses `retail-frontend-runtime-role`. Leave `AUTH_API_URL`, Redis, and the session-cookie secret out of `.env`.
 
 Allow GitHub Actions to reach the instances through the EC2 Instance Connect Endpoint (no public port 22). Attach `infra/iam/github-eice.json` to IAM user `github-eice` (the keys in `DEPLOY_AWS_*`).
 
@@ -448,12 +415,7 @@ A merge into **`dev`** (or a direct push to `dev`) runs tests, then deploys only
 
 Backend and both frontend instances share `DEPLOY_EICE_ENDPOINT_ID`.
 
-On a frontend-only instance, set `BACKEND_URL` in `.env` to the backend host or ALB (not `http://backend:8000`). Attach only `retaillen-frontend-runtime`. Omit `AUTH_API_URL` / `REDIS_URL` / `REDIS_PASSWORD` / `SESSION_COOKIE_PASSWORD` from `.env` so Streamlit reads `retaillen/<ENV_VAR>`. Compose does not pass `AWS_PROFILE` or access keys into the Streamlit container. The frontend deploy uses `docker compose up --no-deps` so it does not start the API on that box.
-
-Port **80** needs root (or `setcap`). Better: Streamlit on 8501, ALB/nginx on 80.
-
-Do not `docker compose up backend` if you want AWS DynamoDB — Compose sets `DDB_ENDPOINT=http://dynamodb:8000`.
-
+On a frontend-only instance, set `BACKEND_URL` in `.env` to the backend private address (not `http://backend:8000`). Attach only `retail-frontend-runtime-role`. Omit `AUTH_API_URL` / `REDIS_URL` / `REDIS_PASSWORD` / `SESSION_COOKIE_PASSWORD` from `.env` so Streamlit reads `retaillen/<ENV_VAR>`. Compose does not pass `AWS_PROFILE` or access keys into the Streamlit container. The frontend deploy uses `docker compose up --no-deps` so it does not start the API or Redis on that box.
 
 ## Dataset
 
@@ -464,6 +426,8 @@ Public reference analysis uses the [UCI Online Retail](https://archive.ics.uci.e
 All comments, docstrings, README/docs Markdown, and inline notes in this repository must be written in English.
 
 
-ONLINE DEMO: www.retaillen.cloud
+ONLINE DEMO: https://www.retaillen.cloud
+
+CloudFront, without the domain registrar: https://d1ncltjzzrscfi.cloudfront.net
 
 

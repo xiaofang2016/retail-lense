@@ -1,15 +1,34 @@
 #!/usr/bin/env bash
-# CloudFormation template is documentation of the CLI-built account.
-# Do not create the stack in 817817875692 (resources already exist).
-# Application deploys: GitHub Actions + infra/scripts/deploy_ec2_*.sh
+# Create a new CloudFormation stack from infra/cloudformation/stack.yaml.
+# Refuses the live account 817817875692 unless ALLOW_LIVE_ACCOUNT=yes.
+# Does not replace GitHub Actions application deploys.
 set -euo pipefail
 
 TEMPLATE="$(cd "$(dirname "$0")/.." && pwd)/cloudformation/stack.yaml"
+STACK_NAME="${STACK_NAME:-retaillen}"
+LIVE_ACCOUNT="817817875692"
 
-echo "infra/cloudformation/stack.yaml is a documentation template."
-echo "Live VPC/ALB/EC2/IAM were created with the AWS CLI; this script will not deploy."
-echo "Template: ${TEMPLATE}"
-echo
-echo "Optional syntax check:"
-echo "  aws cloudformation validate-template --template-body file://${TEMPLATE}"
-exit 1
+if [[ "${CONFIRM:-}" != "deploy" ]]; then
+    echo "Set CONFIRM=deploy to create or update stack ${STACK_NAME}."
+    echo "Template: ${TEMPLATE}"
+    echo "This creates a new VPC. It does not adopt the resources already in ${LIVE_ACCOUNT}."
+    exit 1
+fi
+
+ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
+if [[ "${ACCOUNT}" == "${LIVE_ACCOUNT}" && "${ALLOW_LIVE_ACCOUNT:-}" != "yes" ]]; then
+    echo "Refusing account ${LIVE_ACCOUNT}. Those resources already exist."
+    echo "Deploy from another account, or set ALLOW_LIVE_ACCOUNT=yes for a different stack name."
+    exit 1
+fi
+
+aws cloudformation deploy \
+    --template-file "${TEMPLATE}" \
+    --stack-name "${STACK_NAME}" \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --parameter-overrides "ProjectName=${STACK_NAME}"
+
+aws cloudformation describe-stacks \
+    --stack-name "${STACK_NAME}" \
+    --query 'Stacks[0].Outputs' \
+    --output table
