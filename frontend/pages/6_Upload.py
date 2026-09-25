@@ -16,7 +16,14 @@ setup("Upload Data")
 
 # ---------------------------------------------------------
 # Session state
+#
+# Reset the upload flow only when the user has just navigated onto this
+# page (main.py sets this one-shot flag) -- not on every rerun
 # ---------------------------------------------------------
+
+if st.session_state.pop("_page_just_entered", False):
+    st.session_state["analysis_started"] = False
+    st.session_state.pop("analysis_id", None)
 
 if "analysis_started" not in st.session_state:
     st.session_state["analysis_started"] = False
@@ -280,7 +287,8 @@ if st.button(
             # Remember the analysis_id so the Report page can poll its status.
             st.session_state["analysis_id"] = created["analysis_id"]
 
-            # Prevent accidental duplicate submissions.
+            # Prevent accidental duplicate submissions. Rerun so the button
+            # redraws with disabled=True on the next pass 
             st.session_state["analysis_started"] = True
 
             st.rerun()
