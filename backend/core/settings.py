@@ -156,7 +156,7 @@ def get_settings() -> Settings:
     settings.aws_region = os.getenv("AWS_REGION", "us-east-1")
     settings.aws_profile = os.getenv("AWS_PROFILE", "").strip()
     settings.s3_bucket = os.getenv("S3_BUCKET", "retaillen-dev").strip()
-    settings.max_upload_mb = _int("MAX_UPLOAD_MB", 30)
+    settings.max_upload_mb = _int("MAX_UPLOAD_MB", 25)
     prefix = os.getenv("S3_PREFIX_PUBLIC", "public/").strip() or "public/"
     if not prefix.endswith("/"):
         prefix = f"{prefix}/"
