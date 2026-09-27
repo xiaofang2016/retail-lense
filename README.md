@@ -17,7 +17,9 @@ Compute runs on **EC2**, plus an **auth Lambda** for sign-in and sign-up. Persis
 
 ## Architecture
 
-In the default VPC `vpc-0b7f1d790c744fbad` (`172.31.0.0/16`, `us-east-1`). Account `817817875692`. Demo: [www.retaillen.cloud](https://www.retaillen.cloud).
+The default VPC `vpc-0b7f1d790c744fbad` (`172.31.0.0/16`, `us-east-1`) 
+Account `817817875692`
+Demo: [www.retaillen.cloud](https://www.retaillen.cloud).
 
 ```mermaid
 flowchart TB
@@ -147,8 +149,6 @@ flowchart LR
 - IMDSv2 is required (hop limit 2) so Docker Compose can assume the instance role.
 
 ### Security considerations
-
-Checked against the live roles on 26 September 2026, the 25 September 2026 instance metadata, and `infra/iam/*.json`.
 
 1. **Least-privilege IAM.** `retail-frontend-runtime-role` has one customer-managed policy, `frontend-runtime.json`. It may `GetSecretValue` on four secrets only: `retaillen/AUTH_API_URL`, `REDIS_URL`, `REDIS_PASSWORD`, `SESSION_COOKIE_PASSWORD`. That policy has no S3, DynamoDB, or SQS. It may write CloudWatch logs only for `/retaillen/frontend`. `retail-ec2role` uses `retaillen-backend-runtime-policy.json`: the `public/`, `uploads/`, and `results/` prefixes, the five DynamoDB tables, `retaillen-analysis-queue`, and `sns:Publish` only when `sns:Protocol` is `sms` or the target is `retaillen-analysis-complete`. The same role has `UploadServerCertificatePolicy` so a renewed Let's Encrypt certificate can be uploaded to IAM. App containers do not receive long-lived access keys; they use the instance role. The CI user `github-eice` is a separate key, stored in GitHub Actions, and it cannot call S3 or DynamoDB.
 2. **IMDSv2.** All three running instances have `HttpTokens=required` and hop limit 2. IMDSv1 is off. Hop 2 is what lets a container reach the instance role.
