@@ -17,7 +17,7 @@ Compute runs on **EC2**, plus an **auth Lambda** for sign-in and sign-up. Persis
 
 ## Architecture
 
-As deployed 25 September 2026, in the default VPC `vpc-0b7f1d790c744fbad` (`172.31.0.0/16`, `us-east-1`). Account `817817875692`. Demo: [www.retaillen.cloud](https://www.retaillen.cloud).
+In the default VPC `vpc-0b7f1d790c744fbad` (`172.31.0.0/16`, `us-east-1`). Account `817817875692`. Demo: [www.retaillen.cloud](https://www.retaillen.cloud).
 
 ```mermaid
 flowchart TB
